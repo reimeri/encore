@@ -109,16 +109,7 @@ impl OutputTranspiler for EsbuildCompiler<'_> {
                     )
                 };
 
-                let mut command = vec!["/bin/sh".to_string(), "-c".to_string(), "cd /workspace && npx drizzle-kit migrate && node --enable-source-maps".to_string()];
-
-                match p.debug {
-                    DebugMode::Disabled => {}
-                    DebugMode::Enabled => command.push("--inspect".to_string()),
-                    DebugMode::Break => command.push("--inspect-brk".to_string()),
-                }
-
-                // Finally we want to add the path to the bundled app
-                command.push(entrypoint_path.clone());
+                let mut command = vec!["/bin/sh".to_string(), "-c".to_string(), format!("cd /workspace && npx drizzle-kit migrate && node --enable-source-maps {}", entrypoint_path.clone()).to_string()];
 
                 let (services, gateways) = match i.kind {
                     InputKind::Service(name) => (vec![name], vec![]),
