@@ -109,10 +109,7 @@ impl OutputTranspiler for EsbuildCompiler<'_> {
                     )
                 };
 
-                let mut command = match p.nodejs_runtime {
-                    NodeJSRuntime::NodeJS => vec!["node".into(), "--enable-source-maps".into()],
-                    NodeJSRuntime::Bun => vec!["bun".into(), "run".into()],
-                };
+                let mut command = vec!["/bin/sh".to_string(), "-c".to_string(), "${ENTRYPOINT_COMMANDS:-:} && node --enable-source-maps".to_string()];
 
                 match p.debug {
                     DebugMode::Disabled => {}
