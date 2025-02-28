@@ -104,7 +104,7 @@ impl OutputTranspiler for EsbuildCompiler<'_> {
                     )
                 };
 
-                let mut command = vec!["/bin/sh".to_string(), "-c".to_string(), "${ENTRYPOINT_COMMANDS:-:} && node --enable-source-maps".to_string()];
+                let mut command = vec!["/bin/sh".to_string(), "-c".to_string(), "eval \"${ENTRYPOINT_COMMANDS:-:}\" && node --enable-source-maps".to_string()];
 
                 match p.debug {
                     DebugMode::Disabled => {}
