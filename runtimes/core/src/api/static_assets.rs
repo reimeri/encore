@@ -1,5 +1,6 @@
 use std::{convert::Infallible, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
+use http::StatusCode;
 use http_body_util::Empty;
 use std::fmt::Debug;
 use std::io;
@@ -14,18 +15,23 @@ use super::{BoxedHandler, Error, HandlerRequest, ResponseData};
 pub struct StaticAssetsHandler {
     service: Arc<dyn FileServer>,
     not_found_handler: bool,
+    not_found_status: StatusCode,
 }
 
 impl StaticAssetsHandler {
     pub fn new(cfg: &meta::rpc::StaticAssets) -> Self {
         let service = ServeDir::new(PathBuf::from(&cfg.dir_rel_path));
 
+        let not_found_status = cfg
+            .not_found_status
+            .and_then(|c| StatusCode::from_u16(c as u16).ok())
+            .unwrap_or(StatusCode::NOT_FOUND);
+
         let not_found = cfg
             .not_found_rel_path
             .as_ref()
             .map(|p| ServeFile::new(PathBuf::from(p)));
         let not_found_handler = not_found.is_some();
-
         let service: Arc<dyn FileServer> = match not_found {
             Some(not_found) => Arc::new(service.not_found_service(not_found)),
             None => Arc::new(service),
@@ -33,6 +39,7 @@ impl StaticAssetsHandler {
         StaticAssetsHandler {
             service,
             not_found_handler,
+            not_found_status,
         }
     }
 }
@@ -85,7 +92,7 @@ impl BoxedHandler for StaticAssetsHandler {
             };
 
             match self.service.serve(httpreq).await {
-                Ok(resp) => match resp.status() {
+                Ok(mut resp) => match resp.status() {
                     // 1xx, 2xx, 3xx are all considered successful.
                     code if code.is_informational()
                         || code.is_success()
@@ -96,6 +103,7 @@ impl BoxedHandler for StaticAssetsHandler {
                     axum::http::StatusCode::NOT_FOUND => {
                         // If we have a not found handler, use that directly.
                         if self.not_found_handler {
+                            *resp.status_mut() = self.not_found_status;
                             ResponseData::Raw(resp.map(axum::body::Body::new))
                         } else {
                             // Otherwise return our standard not found error.
