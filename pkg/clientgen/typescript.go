@@ -242,6 +242,14 @@ func (ts *typescript) writeService(svc *meta.Service, p clientgentypes.ServiceSe
 	numIndent++
 	indent()
 	ts.WriteString("this.baseClient = baseClient\n")
+	for _, rpc := range svc.Rpcs {
+		if rpc.AccessType == meta.RPC_PRIVATE || !tags.IsRPCIncluded(rpc) {
+			continue
+		}
+		name := ts.memberName(rpc.Name)
+		indent()
+		fmt.Fprintf(ts, "this.%s = this.%s.bind(this)\n", name, name)
+	}
 	numIndent--
 	indent()
 	ts.WriteString("}\n")
@@ -1033,6 +1041,8 @@ export %sclass Client {
 				w.WriteStringf("public readonly %s: %s.ServiceClient\n", ts.memberName(svc.Name), ts.typeName(svc.Name))
 			}
 		}
+		w.WriteString("private readonly options: ClientOptions\n")
+		w.WriteString("private readonly target: string\n")
 		w.WriteString("\n")
 
 		// Only include the deprecated constructor if bearer token authentication is being used
@@ -1078,7 +1088,9 @@ if (typeof options === "string") {
 		{
 			w := w.Indent()
 
-			w.WriteString("const base = new BaseClient(target, options ?? {})\n")
+			w.WriteString("this.target = target\n")
+			w.WriteString("this.options = options ?? {}\n")
+			w.WriteString("const base = new BaseClient(this.target, this.options)\n")
 			for _, svc := range ts.md.Svcs {
 				if hasPublicRPC(svc) && set.Has(svc.Name) {
 					w.WriteStringf("this.%s = new %s.ServiceClient(base)\n", ts.memberName(svc.Name), ts.typeName(svc.Name))
@@ -1087,6 +1099,21 @@ if (typeof options === "string") {
 		}
 		w.WriteString("}\n")
 	}
+
+	w.WriteString(`
+    /**
+     * Creates a new Encore client with the given client options set.
+     *
+     * @param options Client options to set. They are merged with existing options.
+     **/
+    public with(options: ClientOptions): Client {
+        return new Client(this.target, {
+            ...this.options,
+            ...options,
+        })
+    }
+`)
+
 	w.WriteString("}\n")
 
 	handler := ts.md.AuthHandler
@@ -1478,15 +1505,15 @@ export type JSONValue = string | number | boolean | null | JSONValue[] | {[key: 
 		ts.WriteString(`
 type PickMethods<Type> = Omit<CallParameters, "method"> & {method?: Type}
 
-type RequestType<Type extends (...args: any[]) => any> = 
+type RequestType<Type extends (...args: any[]) => any> =
   Parameters<Type> extends [infer H, ...any[]] ? H : void;
 
 type ResponseType<Type extends (...args: any[]) => any> = Awaited<ReturnType<Type>>;
 
 function dateReviver(key: string, value: any): any {
   if (
-    typeof value === "string" && 
-    value.length >= 10 && 
+    typeof value === "string" &&
+    value.length >= 10 &&
     value.charCodeAt(0) >= 48 && // '0'
     value.charCodeAt(0) <= 57 // '9'
   ) {
@@ -1589,6 +1616,14 @@ func (ts *typescript) convertBuiltinToString(typ schema.Builtin, val string, isO
 		return val
 	case schema.Builtin_JSON:
 		code = fmt.Sprintf("JSON.stringify(%s)", val)
+	case schema.Builtin_TIME:
+		if ts.sharedTypes {
+			// If we're using shared types then this will actually be a Date object.
+			// Otherwise it will be a string.
+			code = fmt.Sprintf("%s.toISOString()", val)
+		} else {
+			code = fmt.Sprintf("String(%s)", val)
+		}
 	default:
 		code = fmt.Sprintf("String(%s)", val)
 	}

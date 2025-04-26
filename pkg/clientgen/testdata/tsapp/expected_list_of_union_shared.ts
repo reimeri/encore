@@ -31,6 +31,8 @@ export function PreviewEnv(pr: number | string): BaseURL {
  */
 export default class Client {
     public readonly svc: svc.ServiceClient
+    private readonly options: ClientOptions
+    private readonly target: string
 
 
     /**
@@ -40,8 +42,22 @@ export default class Client {
      * @param options Options for the client
      */
     constructor(target: BaseURL, options?: ClientOptions) {
-        const base = new BaseClient(target, options ?? {})
+        this.target = target
+        this.options = options ?? {}
+        const base = new BaseClient(this.target, this.options)
         this.svc = new svc.ServiceClient(base)
+    }
+
+    /**
+     * Creates a new Encore client with the given client options set.
+     *
+     * @param options Client options to set. They are merged with existing options.
+     **/
+    public with(options: ClientOptions): Client {
+        return new Client(this.target, {
+            ...this.options,
+            ...options,
+        })
     }
 }
 
@@ -72,6 +88,7 @@ export namespace svc {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.dummy = this.dummy.bind(this)
         }
 
         public async dummy(params: RequestType<typeof api_svc_svc_dummy>): Promise<void> {
@@ -88,15 +105,15 @@ export namespace svc {
 
 type PickMethods<Type> = Omit<CallParameters, "method"> & {method?: Type}
 
-type RequestType<Type extends (...args: any[]) => any> = 
+type RequestType<Type extends (...args: any[]) => any> =
   Parameters<Type> extends [infer H, ...any[]] ? H : void;
 
 type ResponseType<Type extends (...args: any[]) => any> = Awaited<ReturnType<Type>>;
 
 function dateReviver(key: string, value: any): any {
   if (
-    typeof value === "string" && 
-    value.length >= 10 && 
+    typeof value === "string" &&
+    value.length >= 10 &&
     value.charCodeAt(0) >= 48 && // '0'
     value.charCodeAt(0) <= 57 // '9'
   ) {
