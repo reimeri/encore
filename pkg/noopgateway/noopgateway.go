@@ -153,6 +153,8 @@ func (g *Gateway) handleRequest(r *httputil.ProxyRequest) {
 	if g.Rewrite != nil {
 		g.Rewrite(r)
 	}
+	r.Out.Header["X-Forwarded-For"] = r.In.Header["X-Forwarded-For"]
+	r.SetXForwarded()
 }
 
 // lookupRoute looks up the route the request is for.

@@ -190,7 +190,7 @@ Next, we want to make it possible to book an appointment. We'll need a database 
 └── booking                              // booking service (a Go package)
     ├── db                               // (New) db related files (directory)
     │   ├── migrations                   // (New) db migrations (directory)
-    │   │   └── 1_create_table.up.sql    // (New) db migration schema
+    │   │   └── 1_create_tables.up.sql   // (New) db migration schema
     │   └── query.sql                    // (New) SQL queries
     ├── sqlc.yaml                        // (New) sqlc config file
     ├── slots.go                         // booking service code
@@ -221,6 +221,7 @@ $ go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 🥐 Next, we need to configure sqlc. Add the following contents to `sqlc.yaml`:
 
 ```yaml
+-- booking/sqlc.yaml --
 version: "2"
 sql:
   - engine: "postgresql"

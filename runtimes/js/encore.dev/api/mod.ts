@@ -37,6 +37,25 @@ export type Query<
   Name extends string = ""
 > = TypeOrName extends string ? string : TypeOrName;
 
+export type CookieWithOptions<T> = {
+  value: T;
+  expires?: Date;
+  sameSite?: "Strict" | "Lax" | "None";
+  domain?: string;
+  path?: string;
+  maxAge?: number;
+  secure?: boolean;
+  httpOnly?: boolean;
+  partitioned?: boolean;
+};
+
+export type Cookie<
+  TypeOrName extends string | number | boolean | Date = string,
+  Name extends string = ""
+> = TypeOrName extends string
+  ? CookieWithOptions<string>
+  : CookieWithOptions<TypeOrName>;
+
 export interface APIOptions {
   /**
    * The HTTP method(s) to match for this endpoint.
@@ -480,8 +499,12 @@ export function middleware(
     return a as Middleware;
   } else {
     const opts = a as MiddlewareOptions;
-    const mw = b as Middleware;
-    mw.options = opts;
+    // Wrap the middleware function to delegate calls and preserve the original options.
+    // The options object is stored separately and made immutable to prevent accidental mutation.
+    const mw: Middleware = (req: MiddlewareRequest, next: Next) => {
+      return b(req, next);
+    };
+    mw.options = Object.freeze({ ...opts });
 
     return mw;
   }

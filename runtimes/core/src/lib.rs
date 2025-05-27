@@ -445,6 +445,11 @@ impl Runtime {
     }
 
     #[inline]
+    pub fn endpoints(&self) -> &api::EndpointMap {
+        self.api.endpoints()
+    }
+
+    #[inline]
     pub fn tokio_handle(&self) -> &tokio::runtime::Handle {
         self.runtime.handle()
     }
@@ -613,14 +618,13 @@ fn enable_test_mode() -> Result<(), ParseError> {
         .run()
         .map_err(ParseError::IO)?;
     if !out.status.success() {
-        return Err(ParseError::IO(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        return Err(ParseError::IO(std::io::Error::other(
             String::from_utf8(out.stderr).unwrap(),
         )));
     }
 
-    let data = String::from_utf8(out.stdout)
-        .map_err(|e| ParseError::IO(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    let data =
+        String::from_utf8(out.stdout).map_err(|e| ParseError::IO(std::io::Error::other(e)))?;
 
     for line in data.split('\n') {
         let Some((name, value)) = line.split_once('=') else {
