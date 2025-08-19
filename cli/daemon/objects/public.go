@@ -1,6 +1,7 @@
 package objects
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -85,6 +86,11 @@ func (s *PublicBucketServer) handler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	switch req.Method {
+	case "OPTIONS":
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "PUT, GET, HEAD")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Content-Encoding, Date, X-Goog-Generation, X-Goog-Metageneration")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Content-Length, Content-Encoding, Date, X-Goog-Generation, X-Goog-Metageneration")
 	case "GET", "HEAD":
 		_, isSigned := (queryLowerCase(req))["x-goog-signature"]
 		if isSigned {
@@ -112,10 +118,11 @@ func (s *PublicBucketServer) handler(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Type, Content-Length, Content-Encoding, Date, X-Goog-Generation, X-Goog-Metageneration")
 		w.Header().Set("Content-Length", strconv.Itoa(len(contents)))
+		w.Header().Set("Accept-Ranges", "bytes")
 
 		// Only write the body for GET requests, not HEAD
 		if req.Method == "GET" {
-			w.Write(contents)
+			http.ServeContent(w, req, obj.Name, time.Time{}, bytes.NewReader(contents))
 		}
 	case "PUT":
 		err := validateGcsSignedRequest(req, time.Now())

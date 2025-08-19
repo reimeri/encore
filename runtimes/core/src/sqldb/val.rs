@@ -1,7 +1,7 @@
 use anyhow::Context;
 use bytes::{BufMut, BytesMut};
 use serde::Serialize;
-use std::error::Error;
+use std::{error::Error, str::FromStr};
 use tokio_postgres::types::{to_sql_checked, FromSql, IsNull, Kind, ToSql, Type};
 use uuid::Uuid;
 
@@ -12,6 +12,8 @@ pub enum RowValue {
     PVal(PValue),
     Bytes(Vec<u8>),
     Uuid(uuid::Uuid),
+    Inet(cidr::IpInet),
+    Cidr(cidr::IpCidr),
 }
 
 impl ToSql for RowValue {
@@ -24,7 +26,17 @@ impl ToSql for RowValue {
             Self::Uuid(val) => match *ty {
                 Type::UUID => val.to_sql(ty, out),
                 Type::TEXT | Type::VARCHAR => val.to_string().to_sql(ty, out),
-                _ => Err(format!("uuid not supported for column of type {}", ty).into()),
+                _ => Err(format!("uuid not supported for column of type {ty}").into()),
+            },
+            Self::Cidr(val) => match *ty {
+                Type::CIDR => val.to_sql(ty, out),
+                Type::TEXT | Type::VARCHAR => val.to_string().to_sql(ty, out),
+                _ => Err(format!("cidr not supported for column of type {ty}").into()),
+            },
+            Self::Inet(val) => match *ty {
+                Type::INET => val.to_sql(ty, out),
+                Type::TEXT | Type::VARCHAR => val.to_string().to_sql(ty, out),
+                _ => Err(format!("inet not supported for column of type {ty}").into()),
             },
 
             Self::PVal(val) => val.to_sql(ty, out),
@@ -32,8 +44,10 @@ impl ToSql for RowValue {
     }
 
     fn accepts(ty: &Type) -> bool {
-        matches!(*ty, Type::BYTEA | Type::UUID | Type::TEXT | Type::VARCHAR)
-            || matches!(ty.kind(), Kind::Array(ty) if <RowValue as ToSql>::accepts(ty))
+        matches!(
+            *ty,
+            Type::BYTEA | Type::UUID | Type::TEXT | Type::VARCHAR | Type::CIDR | Type::INET
+        ) || matches!(ty.kind(), Kind::Array(ty) if <RowValue as ToSql>::accepts(ty))
             || <PValue as ToSql>::accepts(ty)
     }
 
@@ -62,11 +76,11 @@ impl ToSql for PValue {
                 PValue::Bool(bool) => match *ty {
                     Type::BOOL => bool.to_sql(ty, out),
                     Type::TEXT | Type::VARCHAR => bool.to_string().to_sql(ty, out),
-                    _ => Err(format!("bool not supported for column of type {}", ty).into()),
+                    _ => Err(format!("bool not supported for column of type {ty}").into()),
                 },
 
                 PValue::String(str) => match *ty {
-                    Type::TEXT | Type::VARCHAR => str.to_sql(ty, out),
+                    Type::TEXT | Type::VARCHAR | Type::NAME => str.to_sql(ty, out),
                     Type::BYTEA => {
                         let val = str.as_bytes();
                         val.to_sql(ty, out)
@@ -93,11 +107,19 @@ impl ToSql for PValue {
                         let val = Uuid::parse_str(str).context("unable to parse uuid")?;
                         val.to_sql(ty, out)
                     }
+                    Type::CIDR => {
+                        let val = cidr::IpCidr::from_str(str).context("unable to parse cidr")?;
+                        val.to_sql(ty, out)
+                    }
+                    Type::INET => {
+                        let val = cidr::IpInet::from_str(str).context("unable to parse inet")?;
+                        val.to_sql(ty, out)
+                    }
                     _ => {
                         if let Kind::Enum(_) = ty.kind() {
                             str.to_sql(ty, out)
                         } else {
-                            Err(format!("string not supported for column of type {}", ty).into())
+                            Err(format!("string not supported for column of type {ty}").into())
                         }
                     }
                 },
@@ -114,10 +136,10 @@ impl ToSql for PValue {
                             if res as f64 == float {
                                 Ok(res)
                             } else {
-                                return Err(format!("number {} is not an i16", float).into());
+                                return Err(format!("number {float} is not an i16").into());
                             }
                         } else {
-                            return Err(format!("unsupported number: {:?}", num).into());
+                            return Err(format!("unsupported number: {num:?}").into());
                         };
                         val.map_err(Box::new)?.to_sql(ty, out)
                     }
@@ -132,10 +154,10 @@ impl ToSql for PValue {
                             if res as f64 == float {
                                 Ok(res)
                             } else {
-                                return Err(format!("number {} is not an i32", float).into());
+                                return Err(format!("number {float} is not an i32").into());
                             }
                         } else {
-                            return Err(format!("unsupported number: {:?}", num).into());
+                            return Err(format!("unsupported number: {num:?}").into());
                         };
                         val.map_err(Box::new)?.to_sql(ty, out)
                     }
@@ -150,10 +172,10 @@ impl ToSql for PValue {
                             if res as f64 == float {
                                 Ok(res)
                             } else {
-                                return Err(format!("number {} is not an i64", float).into());
+                                return Err(format!("number {float} is not an i64").into());
                             }
                         } else {
-                            return Err(format!("unsupported number: {:?}", num).into());
+                            return Err(format!("unsupported number: {num:?}").into());
                         };
                         val.map_err(Box::new)?.to_sql(ty, out)
                     }
@@ -165,7 +187,7 @@ impl ToSql for PValue {
                         } else if num.is_f64() {
                             num.as_f64().unwrap() as f32
                         } else {
-                            return Err(format!("unsupported number: {:?}", num).into());
+                            return Err(format!("unsupported number: {num:?}").into());
                         };
                         val.to_sql(ty, out)
                     }
@@ -177,7 +199,7 @@ impl ToSql for PValue {
                         } else if num.is_f64() {
                             num.as_f64().unwrap()
                         } else {
-                            return Err(format!("unsupported number: {:?}", num).into());
+                            return Err(format!("unsupported number: {num:?}").into());
                         };
                         val.to_sql(ty, out)
                     }
@@ -192,10 +214,10 @@ impl ToSql for PValue {
                             if res as f64 == float {
                                 Ok(res)
                             } else {
-                                return Err(format!("number {} is not an u32", float).into());
+                                return Err(format!("number {float} is not an u32").into());
                             }
                         } else {
-                            return Err(format!("unsupported number: {:?}", num).into());
+                            return Err(format!("unsupported number: {num:?}").into());
                         };
                         val.map_err(Box::new)?.to_sql(ty, out)
                     }
@@ -208,7 +230,7 @@ impl ToSql for PValue {
                         } else if num.is_f64() {
                             num.as_f64().unwrap().to_sql(ty, out)
                         } else {
-                            return Err(format!("unsupported number: {:?}", num).into());
+                            Err(format!("unsupported number: {num:?}").into())
                         }
                     }
                 },
@@ -217,14 +239,14 @@ impl ToSql for PValue {
                     Type::TIMESTAMP => dt.naive_utc().to_sql(ty, out),
                     Type::TIMESTAMPTZ => dt.to_sql(ty, out),
                     Type::TEXT | Type::VARCHAR => dt.to_rfc3339().to_sql(ty, out),
-                    _ => Err(format!("unsupported type for DateTime: {}", ty).into()),
+                    _ => Err(format!("unsupported type for DateTime: {ty}").into()),
                 },
                 PValue::Array(arr) => arr.to_sql(ty, out),
                 PValue::Object(_) => {
-                    Err(format!("object not supported for column of type {}", ty).into())
+                    Err(format!("object not supported for column of type {ty}").into())
                 }
                 PValue::Cookie(_) => {
-                    Err(format!("cookie not supported for column of type {}", ty).into())
+                    Err(format!("cookie not supported for column of type {ty}").into())
                 }
             },
         }
@@ -250,6 +272,9 @@ impl ToSql for PValue {
                 | Type::TIMESTAMPTZ
                 | Type::DATE
                 | Type::TIME
+                | Type::INET
+                | Type::CIDR
+                | Type::NAME
         ) || matches!(ty.kind(), Kind::Enum(_))
             || matches!(ty.kind(), Kind::Array(ty) if <PValue as ToSql>::accepts(ty))
     }
@@ -267,11 +292,19 @@ impl<'a> FromSql<'a> for RowValue {
                 let val: uuid::Uuid = FromSql::from_sql(ty, raw)?;
                 Self::Uuid(val)
             }
+            Type::CIDR => {
+                let val: cidr::IpCidr = FromSql::from_sql(ty, raw)?;
+                Self::Cidr(val)
+            }
+            Type::INET => {
+                let val: cidr::IpInet = FromSql::from_sql(ty, raw)?;
+                Self::Inet(val)
+            }
             _ => {
                 if <PValue as FromSql>::accepts(ty) {
                     Self::PVal(FromSql::from_sql(ty, raw)?)
                 } else {
-                    return Err(format!("unsupported type: {:?}", ty).into());
+                    return Err(format!("unsupported type: {ty:?}").into());
                 }
             }
         })
@@ -282,7 +315,7 @@ impl<'a> FromSql<'a> for RowValue {
     }
 
     fn accepts(ty: &Type) -> bool {
-        matches!(*ty, Type::BYTEA | Type::UUID)
+        matches!(*ty, Type::BYTEA | Type::UUID | Type::CIDR | Type::INET)
             || matches!(ty.kind(), Kind::Array(ty) if <RowValue as FromSql>::accepts(ty))
             || <PValue as FromSql>::accepts(ty)
     }
@@ -295,7 +328,7 @@ impl<'a> FromSql<'a> for PValue {
                 let val: bool = FromSql::from_sql(ty, raw)?;
                 PValue::Bool(val)
             }
-            Type::TEXT | Type::VARCHAR => {
+            Type::TEXT | Type::VARCHAR | Type::NAME => {
                 let val: String = FromSql::from_sql(ty, raw)?;
                 PValue::String(val)
             }
@@ -349,6 +382,14 @@ impl<'a> FromSql<'a> for PValue {
                 let val: chrono::NaiveTime = FromSql::from_sql(ty, raw)?;
                 PValue::String(val.to_string())
             }
+            Type::CIDR => {
+                let val: cidr::IpCidr = FromSql::from_sql(ty, raw)?;
+                PValue::String(val.to_string())
+            }
+            Type::INET => {
+                let val: cidr::IpInet = FromSql::from_sql(ty, raw)?;
+                PValue::String(val.to_string())
+            }
 
             _ => {
                 if let Kind::Array(_) = ty.kind() {
@@ -358,7 +399,7 @@ impl<'a> FromSql<'a> for PValue {
                     let val = std::str::from_utf8(raw)?;
                     PValue::String(val.to_string())
                 } else {
-                    return Err(format!("unsupported type: {:?}", ty).into());
+                    return Err(format!("unsupported type: {ty:?}").into());
                 }
             }
         })
@@ -386,6 +427,9 @@ impl<'a> FromSql<'a> for PValue {
                 | Type::TIMESTAMPTZ
                 | Type::DATE
                 | Type::TIME
+                | Type::CIDR
+                | Type::INET
+                | Type::NAME
         ) || matches!(ty.kind(), Kind::Enum(_))
             || matches!(ty.kind(), Kind::Array(ty) if <PValue as FromSql>::accepts(ty))
     }
@@ -467,6 +511,52 @@ mod tests {
     }
 
     #[test]
+    fn test_rowvalue_to_sql_cidr() {
+        let cidr = cidr::IpCidr::new(std::net::Ipv4Addr::new(192, 168, 0, 0).into(), 16).unwrap();
+        let value = RowValue::Cidr(cidr);
+        let mut buf = BytesMut::new();
+        let result = value.to_sql(&Type::CIDR, &mut buf);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_rowvalue_from_sql_cidr() {
+        let cidr = cidr::IpCidr::new(std::net::Ipv4Addr::new(192, 168, 0, 0).into(), 16).unwrap();
+        let mut buf = BytesMut::new();
+        cidr.to_sql(&Type::CIDR, &mut buf).unwrap();
+        let result = RowValue::from_sql(&Type::CIDR, &buf);
+        assert!(result.is_ok());
+        if let RowValue::Cidr(val) = result.unwrap() {
+            assert_eq!(val, cidr);
+        } else {
+            panic!("Expected RowValue::Cidr");
+        }
+    }
+
+    #[test]
+    fn test_rowvalue_to_sql_inet() {
+        let inet = cidr::IpInet::new_host(std::net::Ipv4Addr::new(192, 168, 1, 1).into());
+        let value = RowValue::Inet(inet);
+        let mut buf = BytesMut::new();
+        let result = value.to_sql(&Type::INET, &mut buf);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_rowvalue_from_sql_inet() {
+        let inet = cidr::IpInet::new_host(std::net::Ipv4Addr::new(192, 168, 1, 1).into());
+        let mut buf = BytesMut::new();
+        inet.to_sql(&Type::INET, &mut buf).unwrap();
+        let result = RowValue::from_sql(&Type::INET, &buf);
+        assert!(result.is_ok());
+        if let RowValue::Inet(val) = result.unwrap() {
+            assert_eq!(val, inet);
+        } else {
+            panic!("Expected RowValue::Inet");
+        }
+    }
+
+    #[test]
     fn test_pvalue_from_sql_bool() {
         let raw = &[1]; // true
         let result = PValue::from_sql(&Type::BOOL, raw);
@@ -482,6 +572,18 @@ mod tests {
     fn test_pvalue_from_sql_string() {
         let raw = b"test";
         let result = PValue::from_sql(&Type::TEXT, raw);
+        assert!(result.is_ok());
+        if let PValue::String(val) = result.unwrap() {
+            assert_eq!(val, "test");
+        } else {
+            panic!("Expected PValue::String");
+        }
+    }
+
+    #[test]
+    fn test_pvalue_from_sql_name() {
+        let raw = b"test";
+        let result = PValue::from_sql(&Type::NAME, raw);
         assert!(result.is_ok());
         if let PValue::String(val) = result.unwrap() {
             assert_eq!(val, "test");

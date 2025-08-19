@@ -43,6 +43,19 @@ impl RequestValidator {
         Self { keys }
     }
 
+    #[cfg(test)]
+    pub fn new_mock() -> Self {
+        use crate::secrets::Secret;
+
+        Self {
+            keys: [SigningKey {
+                id: 123,
+                data: Secret::new_for_test("secret data"),
+            }]
+            .into(),
+        }
+    }
+
     pub fn validate_platform_request(
         &self,
         req: &ValidationData,
@@ -159,7 +172,7 @@ impl Display for ValidationError {
             ValidationError::InvalidDateHeader => write!(f, "invalid or missing date header"),
             ValidationError::TimeSkew => write!(f, "time skew"),
             ValidationError::SecretResolve(e) => {
-                write!(f, "resolve secret: {}", e)
+                write!(f, "resolve secret: {e}")
             }
         }
     }

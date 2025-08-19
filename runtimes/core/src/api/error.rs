@@ -69,7 +69,7 @@ impl Serialize for ExternalError<'_> {
 }
 
 impl Error {
-    pub fn as_external(&self) -> ExternalError {
+    pub fn as_external(&self) -> ExternalError<'_> {
         ExternalError(self)
     }
 
@@ -177,7 +177,7 @@ impl std::error::Error for Error {}
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.internal_message {
-            Some(msg) => write!(f, "{}", msg),
+            Some(msg) => write!(f, "{msg}"),
             None => write!(f, "{}", self.message),
         }
     }

@@ -9,7 +9,7 @@ use litparser::Sp;
 use swc_common::errors::HANDLER;
 use swc_common::sync::Lrc;
 use swc_common::{BytePos, Span, Spanned};
-use swc_ecma_ast as ast;
+use swc_ecma_ast::{self as ast, TsTypeParam};
 
 use crate::parser::module_loader::ModuleId;
 use crate::parser::types::object::{CheckState, ObjectKind, ResolveState, TypeNameDecl};
@@ -80,6 +80,15 @@ impl TypeChecker {
     pub fn resolve_obj_type(&self, obj: &Object) -> Type {
         let ctx = Ctx::new(&self.ctx, obj.module_id);
         ctx.obj_type(obj)
+    }
+
+    pub fn resolve_default_export(&self, module: Lrc<module_loader::Module>) -> Option<Rc<Object>> {
+        // Ensure the module is initialized.
+        let module_id = module.id;
+        _ = self.ctx.get_or_init_module(module);
+
+        let ctx = Ctx::new(&self.ctx, module_id);
+        ctx.resolve_default_export()
     }
 }
 
@@ -191,7 +200,7 @@ impl Ctx<'_> {
             | ast::TsType::TsTypePredicate(_) // https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates, https://www.typescriptlang.org/docs/handbook/2/classes.html#this-based-type-guards
             | ast::TsType::TsImportType(_) // ??
             => {
-                HANDLER.with(|handler| handler.span_err(typ.span(), &format!("unsupported: {:#?}", typ)));
+                HANDLER.with(|handler| handler.span_err(typ.span(), &format!("unsupported: {typ:#?}")));
                 Type::Basic(Basic::Never)
             }, // typeof
         }
@@ -360,8 +369,7 @@ impl Ctx<'_> {
                     handler.span_err(
                         span,
                         &format!(
-                            "unsupported indexed access type operation: obj {:#?} index {:#?}",
-                            obj, idx
+                            "unsupported indexed access type operation: obj {obj:#?} index {idx:#?}"
                         ),
                     )
                 });
@@ -488,7 +496,7 @@ impl Ctx<'_> {
             ast::TsTypeQueryExpr::TsEntityName(ast::TsEntityName::Ident(ident)) => {
                 let obj = self.ident_obj(ident);
                 if let Some(obj) = obj {
-                    self.resolve_obj_type(&obj)
+                    self.obj_type(&obj)
                 } else {
                     HANDLER.with(|handler| handler.span_err(ident.span, "unknown identifier"));
                     Type::Basic(Basic::Never)
@@ -577,7 +585,7 @@ impl Ctx<'_> {
                 | ast::TsTypeElement::TsGetterSignature(_)
                 | ast::TsTypeElement::TsSetterSignature(_) => {
                     HANDLER.with(|handler| {
-                        handler.span_err(m.span(), &format!("unsupported: {:#?}", type_lit))
+                        handler.span_err(m.span(), &format!("unsupported: {type_lit:#?}"))
                     });
                     continue;
                 }
@@ -683,8 +691,8 @@ impl Ctx<'_> {
             return Type::Basic(Basic::Date);
         }
 
-        let mut type_arguments =
-            Vec::with_capacity(typ.type_params.as_ref().map_or(0, |p| p.params.len()));
+        let num_params = typ.type_params.as_ref().map_or(0, |p| p.params.len());
+        let mut type_arguments = Vec::with_capacity(num_params);
         if let Some(params) = &typ.type_params {
             for p in &params.params {
                 type_arguments.push(self.typ(p));
@@ -955,6 +963,15 @@ impl Ctx<'_> {
         };
 
         Type::Basic(basic)
+    }
+
+    fn type_alias_decl(&self, decl: &ast::TsTypeAliasDecl) -> Type {
+        if let Some(type_params) = &decl.type_params {
+            let args: Vec<_> = type_params.params.iter().collect();
+            self.clone().with_type_params(&args[..]).typ(&decl.type_ann)
+        } else {
+            self.typ(&decl.type_ann)
+        }
     }
 
     fn interface_decl(&self, decl: &ast::TsInterfaceDecl) -> Type {
@@ -1473,14 +1490,8 @@ impl Ctx<'_> {
     fn resolve_obj_type(&self, obj: &Object) -> Type {
         match &obj.kind {
             ObjectKind::TypeName(tn) => match &tn.decl {
-                TypeNameDecl::Interface(iface) => {
-                    // TODO handle type params here
-                    self.interface_decl(iface)
-                }
-                TypeNameDecl::TypeAlias(ta) => {
-                    // TODO handle type params here
-                    self.typ(&ta.type_ann)
-                }
+                TypeNameDecl::Interface(iface) => self.interface_decl(iface),
+                TypeNameDecl::TypeAlias(ta) => self.type_alias_decl(ta),
             },
 
             ObjectKind::Enum(o) => {
@@ -1602,6 +1613,10 @@ impl Ctx<'_> {
     fn ident_obj(&self, ident: &ast::Ident) -> Option<Rc<Object>> {
         // Does this represent a type parameter?
         self.state.resolve_module_ident(self.module, ident)
+    }
+
+    fn resolve_default_export(&self) -> Option<Rc<Object>> {
+        self.state.resolve_module_default_export(self.module)
     }
 }
 
@@ -1867,7 +1882,15 @@ impl Ctx<'_> {
                             }
 
                             // An unresolved generic type means we can't resolve this yet.
-                            Type::Generic(_) => return Same(typ),
+                            Type::Generic(_) => {
+                                return New(Type::Generic(Generic::Mapped(Mapped {
+                                    in_type: Box::new(self.concrete(&mapped.in_type).into_owned()),
+                                    value_type: Box::new(
+                                        self.concrete(&mapped.value_type).into_owned(),
+                                    ),
+                                    optional: mapped.optional,
+                                })))
+                            }
 
                             // Do we have a wildcard type like "string" or "number"?
                             // If so treat it as an index signature.
@@ -1898,8 +1921,7 @@ impl Ctx<'_> {
 
                             typ => {
                                 HANDLER.with(|handler| {
-                                    handler
-                                        .err(&format!("unsupported mapped key type: {:#?}", typ));
+                                    handler.err(&format!("unsupported mapped key type: {typ:#?}"));
                                 });
                             }
                         }
@@ -1964,17 +1986,22 @@ impl Ctx<'_> {
 
     pub fn underlying_named(&self, named: &Named) -> Type {
         let type_params = named.obj.kind.type_params().collect::<Vec<_>>();
-        let type_args = self.concrete_list(&named.type_arguments);
-        let typ = self.obj_type(&named.obj);
 
-        let ctx = self
-            .clone()
-            .with_type_params(&type_params)
-            .with_type_args(&type_args);
+        // Create a complete list of type arguments with defaults applied where needed
+        if named.type_arguments.len() < type_params.len() {
+            let mut args = named.type_arguments.clone();
 
-        let span = tracing::trace_span!("underlying_named", ?named, ?type_args);
-        let _guard = span.enter();
-        ctx.underlying(&typ).into_owned()
+            // For each parameter that wasn't provided, try to use its default
+            for param in type_params.iter().skip(args.len()) {
+                if let Some(default) = param.default.as_ref() {
+                    args.push(self.typ(default));
+                }
+            }
+
+            self.underlying_type(named, &args, &type_params)
+        } else {
+            self.underlying_type(named, &named.type_arguments, &type_params)
+        }
     }
 
     pub fn underlying<'b>(&'b self, typ: &'b Type) -> Resolved<'b, Type> {
@@ -1993,6 +2020,25 @@ impl Ctx<'_> {
                 _ => New(tt),
             },
         }
+    }
+
+    fn underlying_type(
+        &self,
+        named: &Named,
+        type_arguments: &[Type],
+        type_params: &[&TsTypeParam],
+    ) -> Type {
+        let type_args = self.concrete_list(type_arguments);
+        let typ = self.obj_type(&named.obj);
+
+        let ctx = self
+            .clone()
+            .with_type_params(type_params)
+            .with_type_args(&type_args);
+
+        let span = tracing::trace_span!("underlying_named", ?named, ?type_args);
+        let _guard = span.enter();
+        ctx.underlying(&typ).into_owned()
     }
 
     fn concrete_list<'b>(&'b self, v: &'b [Type]) -> Resolved<'b, [Type]> {

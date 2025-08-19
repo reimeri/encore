@@ -127,7 +127,7 @@ impl<'a> UsageResolver<'a> {
     }
 
     /// external_binds_to_scan_for computes the external binds to scan for given a module.
-    fn external_binds_to_scan_for(&self, module: &Module) -> Vec<BindToScan> {
+    fn external_binds_to_scan_for(&self, module: &Module) -> Vec<BindToScan<'_>> {
         let mut external = Vec::new();
 
         for imp in module.imports() {
@@ -186,10 +186,11 @@ impl<'a> UsageResolver<'a> {
                         };
 
                         for bind in resolved_binds.into_iter().flatten() {
-                            if let Some(name) = &bind.name {
+                            // don't add anonymous binds e.g `const _ = new ...`
+                            if bind.name.is_some() {
                                 external.push(BindToScan {
                                     bound_name: local_name.to_id(),
-                                    selector: Some(name),
+                                    selector: bind.name.as_deref(),
                                     bind: bind.to_owned(),
                                 });
                             }
@@ -203,7 +204,7 @@ impl<'a> UsageResolver<'a> {
     }
 
     /// internal_binds_to_scan_for computes the internal binds to scan for given a module.
-    fn internal_binds_to_scan_for(&self, module: &Module) -> Vec<BindToScan> {
+    fn internal_binds_to_scan_for(&self, module: &Module) -> Vec<BindToScan<'_>> {
         let mut internal = Vec::new();
 
         if let Some(module_binds) = self.binds_by_module.get(&module.id) {

@@ -495,10 +495,10 @@ impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParseError::EnvNotPresent => write!(f, "environment variable not present"),
-            ParseError::EnvVar(e) => write!(f, "failed to read environment variable: {}", e),
-            ParseError::Base64(e) => write!(f, "failed to decode environment variable: {}", e),
-            ParseError::Proto(e) => write!(f, "failed to parse environment variable: {}", e),
-            ParseError::IO(e) => write!(f, "failed to read file: {}", e),
+            ParseError::EnvVar(e) => write!(f, "failed to read environment variable: {e}"),
+            ParseError::Base64(e) => write!(f, "failed to decode environment variable: {e}"),
+            ParseError::Proto(e) => write!(f, "failed to parse environment variable: {e}"),
+            ParseError::IO(e) => write!(f, "failed to read file: {e}"),
         }
     }
 }
@@ -608,7 +608,7 @@ fn parse_meta(path: &Path) -> Result<metapb::Data, ParseError> {
 }
 
 fn enable_test_mode() -> Result<(), ParseError> {
-    if std::env::var("ENCORE_APP_META").is_ok() {
+    if std::env::var("ENCORE_APP_META").is_ok() || std::env::var("ENCORE_APP_META_PATH").is_ok() {
         return Ok(());
     }
 

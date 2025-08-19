@@ -103,7 +103,7 @@ pub struct RequestParamsByLoc<'a> {
 }
 
 impl RequestEncoding {
-    pub fn by_loc(&self) -> RequestParamsByLoc {
+    pub fn by_loc(&self) -> RequestParamsByLoc<'_> {
         let mut by_loc = RequestParamsByLoc {
             path: vec![],
             header: vec![],
@@ -566,7 +566,7 @@ fn rewrite_path_types(req: &RequestEncoding, path: Path, raw: bool) -> ParseResu
             typ => Err(param
                 .range
                 .to_span()
-                .parse_err(format!("unsupported path parameter type: {:?}", typ))),
+                .parse_err(format!("unsupported path parameter type: {typ:?}"))),
         }
     }
 

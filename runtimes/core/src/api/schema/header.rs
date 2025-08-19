@@ -176,13 +176,19 @@ impl ToOutgoingRequest<http::HeaderMap> for Header {
         };
 
         for (key, field) in self.schema.root().fields.iter() {
-            let value = payload.get(key).ok_or_else(|| api::Error {
-                code: api::ErrCode::InvalidArgument,
-                message: format!("missing header parameter: {}", key),
-                internal_message: Some(format!("missing header parameter: {}", key)),
-                stack: None,
-                details: None,
-            })?;
+            let Some(value) = payload.get(key) else {
+                if field.optional {
+                    continue;
+                }
+                return Err(api::Error {
+                    code: api::ErrCode::InvalidArgument,
+                    message: format!("missing header parameter: {key}"),
+                    internal_message: Some(format!("missing header parameter: {key}")),
+                    stack: None,
+                    details: None,
+                });
+            };
+
             let header_name = field.name_override.as_deref().unwrap_or(key);
             let header_name =
                 reqwest::header::HeaderName::from_str(header_name).map_err(api::Error::internal)?;
@@ -287,7 +293,7 @@ fn to_reqwest_header_value(value: &PValue) -> APIResult<ReqwestHeaders> {
         String(str) => reqwest::header::HeaderValue::from_str(str).map_err(|e| api::Error {
             code: api::ErrCode::InvalidArgument,
             message: "unable to convert string to header value".to_string(),
-            internal_message: Some(format!("unable to convert string to header value: {}", e)),
+            internal_message: Some(format!("unable to convert string to header value: {e}")),
             stack: None,
             details: None,
         })?,
@@ -297,10 +303,7 @@ fn to_reqwest_header_value(value: &PValue) -> APIResult<ReqwestHeaders> {
             reqwest::header::HeaderValue::from_str(&s).map_err(|e| api::Error {
                 code: api::ErrCode::InvalidArgument,
                 message: "unable to convert datetime to header value".to_string(),
-                internal_message: Some(format!(
-                    "unable to convert datetime to header value: {}",
-                    e
-                )),
+                internal_message: Some(format!("unable to convert datetime to header value: {e}")),
                 stack: None,
                 details: None,
             })?
@@ -311,7 +314,7 @@ fn to_reqwest_header_value(value: &PValue) -> APIResult<ReqwestHeaders> {
             reqwest::header::HeaderValue::from_str(&str).map_err(|e| api::Error {
                 code: api::ErrCode::InvalidArgument,
                 message: "unable to convert number to header value".to_string(),
-                internal_message: Some(format!("unable to convert number to header value: {}", e)),
+                internal_message: Some(format!("unable to convert number to header value: {e}")),
                 stack: None,
                 details: None,
             })?
@@ -373,7 +376,7 @@ fn to_axum_header_value(value: &PValue) -> APIResult<AxumHeaders> {
         String(str) => axum::http::HeaderValue::from_str(str).map_err(|e| api::Error {
             code: api::ErrCode::InvalidArgument,
             message: "unable to convert string to header value".to_string(),
-            internal_message: Some(format!("unable to convert string to header value: {}", e)),
+            internal_message: Some(format!("unable to convert string to header value: {e}")),
             stack: None,
             details: None,
         })?,
@@ -383,10 +386,7 @@ fn to_axum_header_value(value: &PValue) -> APIResult<AxumHeaders> {
             axum::http::HeaderValue::from_str(&s).map_err(|e| api::Error {
                 code: api::ErrCode::InvalidArgument,
                 message: "unable to convert datetime to header value".to_string(),
-                internal_message: Some(format!(
-                    "unable to convert datetime to header value: {}",
-                    e
-                )),
+                internal_message: Some(format!("unable to convert datetime to header value: {e}")),
                 stack: None,
                 details: None,
             })?
@@ -397,7 +397,7 @@ fn to_axum_header_value(value: &PValue) -> APIResult<AxumHeaders> {
             axum::http::HeaderValue::from_str(&str).map_err(|e| api::Error {
                 code: api::ErrCode::InvalidArgument,
                 message: "unable to convert number to header value".to_string(),
-                internal_message: Some(format!("unable to convert number to header value: {}", e)),
+                internal_message: Some(format!("unable to convert number to header value: {e}")),
                 stack: None,
                 details: None,
             })?
