@@ -29,6 +29,7 @@ import (
 	"encr.dev/parser/encoding"
 	"encr.dev/pkg/editors"
 	"encr.dev/pkg/errlist"
+	"encr.dev/pkg/jsonext"
 	tracepb2 "encr.dev/proto/encore/engine/trace2"
 	meta "encr.dev/proto/encore/parser/meta/v1"
 )
@@ -90,6 +91,20 @@ func (h *handler) Handle(ctx context.Context, reply jsonrpc2.Replier, r jsonrpc2
 	}
 
 	switch r.Method() {
+	case "db/query":
+		var p QueryRequest
+		if err := unmarshal(&p); err != nil {
+			return reply(ctx, nil, err)
+		}
+		res, err := h.Query(ctx, p)
+		return reply(ctx, res, err)
+	case "db/transaction":
+		var p TransactionRequest
+		if err := unmarshal(&p); err != nil {
+			return reply(ctx, nil, err)
+		}
+		res, err := h.Transaction(ctx, p)
+		return reply(ctx, res, err)
 	case "onboarding/get":
 		state, err := onboarding.Load()
 		if err != nil {
@@ -252,6 +267,38 @@ func (h *handler) Handle(ctx context.Context, reply jsonrpc2.Replier, r jsonrpc2
 		}
 		return reply(ctx, events, err)
 
+	case "traces/spans/summaries/list":
+		telemetry.Send("traces.spans.summaries.list")
+		var params struct {
+			AppID   string `json:"app_id"`
+			TraceID string `json:"trace_id"`
+		}
+		if err := unmarshal(&params); err != nil {
+			return reply(ctx, nil, err)
+		}
+
+		spans, err := h.tr.GetSpanSummaries(ctx, params.AppID, params.TraceID)
+		if err != nil {
+			log.Error().Err(err).Msg("dash: could not list trace spans")
+			return reply(ctx, nil, err)
+		}
+		return reply(ctx, spans, err)
+	case "traces/spans/events/list":
+		telemetry.Send("traces.spans.events.list")
+		var params struct {
+			AppID   string `json:"app_id"`
+			TraceID string `json:"trace_id"`
+			SpanID  string `json:"span_id"`
+		}
+		if err := unmarshal(&params); err != nil {
+			return reply(ctx, nil, err)
+		}
+
+		events, err := h.tr.GetEvents(ctx, params.AppID, params.TraceID, params.SpanID)
+		if err != nil {
+			log.Error().Err(err).Msg("dash: could not get span events")
+		}
+		return reply(ctx, events, err)
 	case "status":
 		var params struct {
 			AppID string
@@ -306,7 +353,7 @@ func (h *handler) Handle(ctx context.Context, reply jsonrpc2.Replier, r jsonrpc2
 		clusterType := sqldb.Run
 		cluster, ok := h.run.ClusterMgr.Get(sqldb.GetClusterID(app, clusterType, namespace))
 		if !ok {
-			return reply(ctx, nil, fmt.Errorf("failed to get database cluster of type %s", clusterType))
+			return reply(ctx, []dbMigrationHistory{}, nil)
 		}
 
 		status := buildDbMigrationStatus(ctx, appMeta, cluster)
@@ -594,7 +641,7 @@ func (s *Server) listenTraces() {
 			continue
 		}
 
-		data, err := protoEncoder.Marshal(sp.Span)
+		data, err := jsonext.ProtoEncoder.Marshal(sp.Span)
 		if err != nil {
 			log.Error().Err(err).Msg("dash: could not marshal trace")
 			continue
@@ -729,7 +776,7 @@ func makeProtoReplier(rep jsonrpc2.Replier) jsonrpc2.Replier {
 		if err != nil {
 			return rep(ctx, nil, err)
 		}
-		jsonData, err := protoEncoder.Marshal(result)
+		jsonData, err := jsonext.ProtoEncoder.Marshal(result)
 		return rep(ctx, json.RawMessage(jsonData), err)
 	}
 }

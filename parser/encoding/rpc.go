@@ -295,7 +295,7 @@ func DescribeRPC(appMetaData *meta.Data, rpc *meta.RPC, options *Options) (*RPCE
 	// Work out the response encoding
 	encoding.ResponseEncoding, err = DescribeResponse(appMetaData, rpc.ResponseSchema, options)
 	if err != nil {
-		return nil, errors.Wrap(err, "request encoding")
+		return nil, errors.Wrap(err, "response encoding")
 	}
 
 	if encoding.RequestEncoding != nil {
@@ -439,6 +439,27 @@ func GetConcreteType(appDecls []*schema.Decl, originalType *schema.Type, typeArg
 		// replace any type parameters with the type argument
 		return resolveTypeParams(&schema.Type{Typ: &schema.Type_Pointer{Pointer: pointer}}, typeArgs), nil
 
+	case *schema.Type_Option:
+		// If there are no type arguments, we've got a concrete type
+		if len(typeArgs) == 0 {
+			return originalType, nil
+		}
+
+		// Deep copy the original struct
+		option, ok := proto.Clone(typ.Option).(*schema.Option)
+		if !ok {
+			return nil, errors.New("failed to clone option type")
+		}
+
+		var err error
+		option.Value, err = GetConcreteType(appDecls, option.Value, typeArgs)
+		if err != nil {
+			return nil, err
+		}
+
+		// replace any type parameters with the type argument
+		return resolveTypeParams(&schema.Type{Typ: &schema.Type_Option{Option: option}}, typeArgs), nil
+
 	case *schema.Type_Config:
 		// If there are no type arguments, we've got a concrete type
 		if len(typeArgs) == 0 {
@@ -459,6 +480,9 @@ func GetConcreteType(appDecls []*schema.Decl, originalType *schema.Type, typeArg
 		return GetConcreteType(appDecls, decl.Type, typ.Named.TypeArguments)
 
 	case *schema.Type_Builtin:
+		return originalType, nil
+
+	case *schema.Type_Literal:
 		return originalType, nil
 
 	default:
@@ -491,6 +515,9 @@ func resolveTypeParams(typ *schema.Type, typeArgs []*schema.Type) *schema.Type {
 	case *schema.Type_Pointer:
 		t.Pointer.Base = resolveTypeParams(t.Pointer.Base, typeArgs)
 
+	case *schema.Type_Option:
+		t.Option.Value = resolveTypeParams(t.Option.Value, typeArgs)
+
 	case *schema.Type_Named:
 		for i, param := range t.Named.TypeArguments {
 			t.Named.TypeArguments[i] = resolveTypeParams(param, typeArgs)
@@ -505,16 +532,10 @@ func resolveTypeParams(typ *schema.Type, typeArgs []*schema.Type) *schema.Type {
 // then is a selection of methods and POST is one of them. If POST is not allowed as a method then
 // we will use the first specified method.
 func DefaultClientHttpMethod(rpc *meta.RPC) string {
-	if rpc.HttpMethods[0] == "*" {
+	// Default to POST if we have a wildcard method or if POST is one of the allowed methods.
+	if rpc.HttpMethods[0] == "*" || slices.Contains(rpc.HttpMethods, "POST") {
 		return "POST"
 	}
-
-	for _, httpMethod := range rpc.HttpMethods {
-		if httpMethod == "POST" {
-			return "POST"
-		}
-	}
-
 	return rpc.HttpMethods[0]
 
 }
@@ -671,9 +692,14 @@ func formatName(lang meta.Lang, location ParameterLocation, name string) string 
 }
 
 // IgnoreField returns true if the field name is "-" is any of the valid request or response tags
+// or if the field is marked with encore:"httpstatus" (which shouldn't appear in client types)
 func IgnoreField(field *schema.Field) bool {
 	for _, tag := range field.Tags {
 		if _, found := requestTags[tag.Key]; found && tag.Name == "-" {
+			return true
+		}
+		// Skip fields with encore:"httpstatus" tag - they're for internal HTTP status handling only
+		if tag.Key == "encore" && tag.Name == "httpstatus" {
 			return true
 		}
 	}
@@ -717,11 +743,13 @@ func describeParam(lang meta.Lang, encodingHints *encodingHints, field *schema.F
 			usedOverrideTag = tag.Key
 		}
 		if tagHint.location == location {
-			param.Name = tag.Name
-			if tagHint.wireFormatter != nil {
-				param.WireFormat = tagHint.wireFormatter(tag.Name)
-			} else {
-				param.WireFormat = tag.Name
+			if tag.Name != "" {
+				param.Name = tag.Name
+				if tagHint.wireFormatter != nil {
+					param.WireFormat = tagHint.wireFormatter(tag.Name)
+				} else {
+					param.WireFormat = tag.Name
+				}
 			}
 		}
 		if tagHint.omitEmptyOption != "" {

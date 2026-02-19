@@ -356,14 +356,7 @@ impl PackageManager for PnpmPackageManager {
 
     fn run_tests(&self) -> CmdSpec {
         CmdSpec {
-            command: vec![
-                "pnpm".to_string(),
-                "run".to_string(),
-                "test".to_string(),
-                // Specify '--' so that additional arguments added from the test runner
-                // aren't interpreted by npm.
-                "--".to_string(),
-            ],
+            command: vec!["pnpm".to_string(), "run".to_string(), "test".to_string()],
             env: vec![],
             prioritized_files: vec![],
         }

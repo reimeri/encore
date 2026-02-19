@@ -10,6 +10,7 @@ use anyhow::Context;
 use axum::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use http::uri::Scheme;
+use http::HeaderValue;
 use hyper::header;
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::protocols::http::error_resp;
@@ -27,7 +28,7 @@ use crate::api::call::{CallDesc, ServiceRegistry};
 use crate::api::paths::PathSet;
 use crate::api::reqauth::caller::Caller;
 use crate::api::reqauth::{svcauth, CallMeta};
-use crate::{api, model, EncoreName};
+use crate::{api, model, trace, EncoreName};
 
 use super::cors::cors_headers_config::CorsHeadersConfig;
 use super::encore_routes::healthz;
@@ -44,14 +45,24 @@ struct Inner {
     cors_config: CorsHeadersConfig,
     healthz: healthz::Handler,
     own_api_address: Option<SocketAddr>,
-    proxied_push_subs: HashMap<String, EncoreName>,
+    proxied_push_subs: HashMap<String, ProxiedPushSub>,
+}
+
+/// A push subscription that the gateway proxies to another service.
+#[derive(Clone, Debug)]
+pub struct ProxiedPushSub {
+    pub service_name: EncoreName,
+    pub topic: EncoreName,
+    pub subscription: EncoreName,
 }
 
 pub struct GatewayCtx {
     upstream_service_name: EncoreName,
+    upstream_sampling_target: router::SamplingTarget,
     upstream_base_path: String,
     upstream_host: Option<String>,
     upstream_require_auth: bool,
+    trace_id: Option<model::TraceId>,
 }
 
 impl GatewayCtx {
@@ -85,11 +96,13 @@ impl Gateway {
         cors_config: CorsHeadersConfig,
         healthz: healthz::Handler,
         own_api_address: Option<SocketAddr>,
-        proxied_push_subs: HashMap<String, EncoreName>,
+        proxied_push_subs: HashMap<String, ProxiedPushSub>,
+        tracer: trace::Tracer,
     ) -> anyhow::Result<Self> {
         let shared = Arc::new(SharedGatewayData {
             name,
             auth: auth_handler,
+            tracer,
         });
 
         let mut router = router::Router::new();
@@ -203,8 +216,9 @@ impl ProxyHttp for Gateway {
         let push_proxy_svc = path
             .strip_prefix("/__encore/pubsub/push/")
             .and_then(|sub_id| self.inner.proxied_push_subs.get(sub_id))
-            .map(|svc| Target {
-                service_name: svc.clone(),
+            .map(|sub| Target {
+                service_name: sub.service_name.clone(),
+                sampling_target: router::SamplingTarget::PubSub,
                 requires_auth: false,
             });
 
@@ -268,7 +282,9 @@ impl ProxyHttp for Gateway {
             upstream_base_path: upstream_url.path().to_string(),
             upstream_host: host,
             upstream_service_name: target.service_name.clone(),
+            upstream_sampling_target: target.sampling_target.clone(),
             upstream_require_auth: target.requires_auth,
+            trace_id: None,
         });
 
         Ok(Box::new(peer))
@@ -283,10 +299,14 @@ impl ProxyHttp for Gateway {
     where
         Self::CTX: Send + Sync,
     {
-        if ctx.is_some() {
+        if let Some(gateway_ctx) = ctx.as_ref() {
             self.inner
                 .cors_config
                 .apply(session.req_header(), upstream_response)?;
+
+            if let Some(trace_id) = gateway_ctx.trace_id {
+                maybe_add_trace_id_header(upstream_response, trace_id);
+            }
         }
 
         Ok(())
@@ -301,7 +321,7 @@ impl ProxyHttp for Gateway {
     where
         Self::CTX: Send + Sync,
     {
-        if let Some(gateway_ctx) = ctx.as_ref() {
+        if let Some(gateway_ctx) = ctx.as_mut() {
             let new_uri = gateway_ctx
                 .prepend_base_path(&upstream_request.uri)
                 .or_err(
@@ -373,6 +393,7 @@ impl ProxyHttp for Gateway {
                 ErrorType::InternalError,
                 "couldn't parse CallMeta from request",
             )?;
+            gateway_ctx.trace_id = Some(call_meta.trace_id);
             if call_meta.parent_span_id.is_none() {
                 call_meta.parent_span_id = Some(model::SpanId::generate());
             }
@@ -390,6 +411,16 @@ impl ProxyHttp for Gateway {
                     .ext_correlation_id
                     .as_ref()
                     .map(|s| Cow::Borrowed(s.as_str())),
+                traced: call_meta.trace_sampled.unwrap_or_else(|| {
+                    match &gateway_ctx.upstream_sampling_target {
+                        router::SamplingTarget::Api(name) => {
+                            self.inner.shared.tracer.should_sample(name)
+                        }
+                        router::SamplingTarget::PubSub => {
+                            self.inner.shared.tracer.should_sample_default()
+                        }
+                    }
+                }),
                 auth_user_id: None,
                 auth_data: None,
                 svc_auth_method: svc_auth_method.as_ref(),
@@ -424,7 +455,7 @@ impl ProxyHttp for Gateway {
         Ok(())
     }
 
-    async fn fail_to_proxy(&self, session: &mut Session, e: &Error, _ctx: &mut Self::CTX) -> u16
+    async fn fail_to_proxy(&self, session: &mut Session, e: &Error, ctx: &mut Self::CTX) -> u16
     where
         Self::CTX: Send + Sync,
     {
@@ -474,6 +505,11 @@ impl ProxyHttp for Gateway {
         {
             log::error!("failed setting cors header in error response: {e}");
         }
+        if let Some(gateway_ctx) = ctx.as_ref() {
+            if let Some(trace_id) = gateway_ctx.trace_id {
+                maybe_add_trace_id_header(&mut resp, trace_id);
+            }
+        }
         session.set_keepalive(None);
         session
             .write_response_header(Box::new(resp), false)
@@ -493,6 +529,17 @@ impl ProxyHttp for Gateway {
 
 fn as_api_error(err: &pingora::Error) -> Option<&api::Error> {
     err.root_cause().downcast_ref::<api::Error>()
+}
+
+fn maybe_add_trace_id_header(resp: &mut ResponseHeader, trace_id: model::TraceId) {
+    if resp.headers.contains_key("x-encore-trace-id") {
+        return;
+    }
+
+    let value = trace_id.serialize_encore();
+    if let Ok(val) = HeaderValue::from_str(value.as_str()) {
+        let _ = resp.insert_header("x-encore-trace-id", val);
+    }
 }
 
 fn api_error_response(err: &api::Error) -> (ResponseHeader, bytes::Bytes) {
@@ -527,4 +574,40 @@ impl crate::api::auth::InboundRequest for RequestHeader {
 struct SharedGatewayData {
     name: EncoreName,
     auth: Option<auth::Authenticator>,
+    tracer: trace::Tracer,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maybe_add_trace_id_header_adds_when_missing() {
+        let mut resp = ResponseHeader::build(200, None).unwrap();
+        let trace_id = model::TraceId([1; 16]);
+
+        maybe_add_trace_id_header(&mut resp, trace_id);
+
+        let val = resp
+            .headers
+            .get("x-encore-trace-id")
+            .expect("header missing");
+        assert_eq!(val.to_str().unwrap(), trace_id.serialize_encore());
+    }
+
+    #[test]
+    fn maybe_add_trace_id_header_keeps_existing() {
+        let mut resp = ResponseHeader::build(200, None).unwrap();
+        resp.insert_header("x-encore-trace-id", HeaderValue::from_static("existing"))
+            .unwrap();
+        let trace_id = model::TraceId([2; 16]);
+
+        maybe_add_trace_id_header(&mut resp, trace_id);
+
+        let val = resp
+            .headers
+            .get("x-encore-trace-id")
+            .expect("header missing");
+        assert_eq!(val.to_str().unwrap(), "existing");
+    }
 }

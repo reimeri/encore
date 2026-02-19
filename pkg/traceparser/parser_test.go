@@ -120,7 +120,8 @@ func TestParse(t *testing.T) {
 				TraceId: pbTraceID,
 				SpanId:  pbSpanID,
 				Event: &tracepb2.TraceEvent_SpanEnd{SpanEnd: &tracepb2.SpanEnd{
-					Error: pbErr,
+					StatusCode: tracepb2.StatusCode_STATUS_CODE_UNKNOWN,
+					Error:      pbErr,
 					Data: &tracepb2.SpanEnd_Request{
 						Request: &tracepb2.RequestSpanEnd{
 							ServiceName:     "service",
@@ -128,6 +129,8 @@ func TestParse(t *testing.T) {
 							HttpStatusCode:  123,
 							ResponseHeaders: map[string]string{"Content-Type": "application/json"},
 							ResponsePayload: []byte("payload"),
+							CallerEventId:   ptr(uint64(0)),
+							Uid:             nil, // ptrOrNil returns nil for empty strings
 						},
 					},
 				}},
@@ -200,7 +203,8 @@ func TestParse(t *testing.T) {
 				TraceId: pbTraceID,
 				SpanId:  pbSpanID,
 				Event: &tracepb2.TraceEvent_SpanEnd{SpanEnd: &tracepb2.SpanEnd{
-					Error: pbErr,
+					StatusCode: tracepb2.StatusCode_STATUS_CODE_UNKNOWN,
+					Error:      pbErr,
 					Data: &tracepb2.SpanEnd_Auth{
 						Auth: &tracepb2.AuthSpanEnd{
 							ServiceName:  "service",
@@ -225,13 +229,15 @@ func TestParse(t *testing.T) {
 					Traced:       true,
 					DefLoc:       defLoc,
 					MsgData: &model.PubSubMsgData{
-						Service:      "service",
-						Topic:        "topic",
-						Subscription: "subscription",
-						MessageID:    "message-id",
-						Attempt:      3,
-						Published:    now,
-						Payload:      []byte("payload"),
+						Desc: &model.PubSubSubscriptionDesc{
+							Service:      "service",
+							Topic:        "topic",
+							Subscription: "subscription",
+						},
+						MessageID: "message-id",
+						Attempt:   3,
+						Published: now,
+						Payload:   []byte("payload"),
 					},
 				}, goid)
 			},
@@ -266,9 +272,11 @@ func TestParse(t *testing.T) {
 					EventParams: ep,
 					Req: &model.Request{
 						MsgData: &model.PubSubMsgData{
-							Service:      "service",
-							Topic:        "topic",
-							Subscription: "subscription",
+							Desc: &model.PubSubSubscriptionDesc{
+								Service:      "service",
+								Topic:        "topic",
+								Subscription: "subscription",
+							},
 						},
 					},
 					Resp: &model.Response{Err: err},
@@ -278,12 +286,14 @@ func TestParse(t *testing.T) {
 				TraceId: pbTraceID,
 				SpanId:  pbSpanID,
 				Event: &tracepb2.TraceEvent_SpanEnd{SpanEnd: &tracepb2.SpanEnd{
-					Error: pbErr,
+					StatusCode: tracepb2.StatusCode_STATUS_CODE_UNKNOWN,
+					Error:      pbErr,
 					Data: &tracepb2.SpanEnd_PubsubMessage{
 						PubsubMessage: &tracepb2.PubsubMessageSpanEnd{
 							ServiceName:      "service",
 							TopicName:        "topic",
 							SubscriptionName: "subscription",
+							MessageId:        "",
 						},
 					},
 				}},
@@ -440,9 +450,11 @@ func TestParse(t *testing.T) {
 			Emit: func(l *trace2.Log) {
 				l.PubsubPublishStart(trace2.PubsubPublishStartParams{
 					EventParams: ep,
-					Topic:       "topic",
-					Message:     []byte("message"),
-					Stack:       stack.Stack{},
+					Desc: &model.PubSubTopicDesc{
+						Topic: "topic",
+					},
+					Message: []byte("message"),
+					Stack:   stack.Stack{},
 				})
 			},
 			Want: &tracepb2.TraceEvent{

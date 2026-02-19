@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::io::Read;
@@ -24,11 +24,14 @@ pub mod error;
 pub mod infracfg;
 pub mod log;
 pub mod meta;
+pub mod metadata;
+pub mod metrics;
 pub mod model;
 mod names;
 pub mod objects;
 pub mod proccfg;
 pub mod pubsub;
+pub mod runtime_config;
 pub mod secrets;
 pub mod sqldb;
 mod trace;
@@ -209,6 +212,8 @@ pub struct Runtime {
     app_meta: meta::AppMeta,
     compute: ComputeConfig,
     runtime: tokio::runtime::Runtime,
+    metrics: metrics::Manager,
+    runtime_config: runtime_config::RuntimeConfig,
 }
 
 impl Runtime {
@@ -230,6 +235,7 @@ impl Runtime {
             .context("failed to build tokio runtime")?;
 
         let app_meta = meta::AppMeta::new(&cfg, &md);
+        let runtime_config = runtime_config::RuntimeConfig::new(&cfg);
         let environment = cfg.environment.take().unwrap_or_default();
         let mut infra = cfg.infra.take().unwrap_or_default();
         let resources = infra.resources.take().unwrap_or_default();
@@ -238,6 +244,7 @@ impl Runtime {
 
         let mut deployment = cfg.deployment.take().unwrap_or_default();
         let service_discovery = deployment.service_discovery.take().unwrap_or_default();
+        let observability = deployment.observability.take().unwrap_or_default();
 
         let http_client = reqwest::Client::builder()
             .build()
@@ -250,36 +257,50 @@ impl Runtime {
         );
         let platform_validator = Arc::new(platform_validator);
 
+        // Initialize metrics manager from runtime config
+        let metrics_manager = metrics::Manager::from_runtime_config(
+            &observability,
+            &environment,
+            &secrets,
+            &http_client,
+            tokio_rt.handle().clone(),
+        );
+
         // Set up observability.
         let disable_tracing =
             testing || std::env::var("ENCORE_NOTRACE").is_ok_and(|v| !v.is_empty());
         let tracer = if !disable_tracing {
-            let observability = deployment.observability.take().unwrap_or_default();
-            let trace_endpoint = observability
+            let trace_cfg = observability
                 .tracing
                 .into_iter()
                 .find_map(|p| match p.provider {
                     Some(runtimepb::tracing_provider::Provider::Encore(encore)) => {
-                        Some(encore.trace_endpoint)
+                        #[allow(deprecated)]
+                        let sampling_rate = encore.sampling_rate;
+                        Some((encore.sampling_config, sampling_rate, encore.trace_endpoint))
                     }
                     _ => None,
                 })
-                .and_then(|ep| match reqwest::Url::parse(&ep) {
-                    Ok(ep) => Some(ep),
+                .and_then(|(cfg, sr, ep)| match reqwest::Url::parse(&ep) {
+                    Ok(ep) => Some((cfg, sr, ep)),
                     Err(err) => {
                         ::log::warn!("disabling tracing: invalid trace endpoint {}: {}", ep, err);
                         None
                     }
                 });
 
-            match trace_endpoint {
-                Some(trace_endpoint) => {
+            match trace_cfg {
+                Some((trace_sampling_config, trace_sampling_rate, trace_endpoint)) => {
                     let config = trace::ReporterConfig {
                         app_id: environment.app_id.clone(),
                         env_id: environment.env_id.clone(),
                         deploy_id: deployment.deploy_id.clone(),
                         app_commit: md.app_revision.clone(),
                         trace_endpoint,
+                        trace_sampling_config: trace::TraceSamplingConfig::new(
+                            trace_sampling_config,
+                            trace_sampling_rate,
+                        ),
                         platform_validator: platform_validator.clone(),
                     };
 
@@ -302,33 +323,32 @@ impl Runtime {
             .flat_map(|c| c.subscriptions.iter())
             .filter(|s| s.push_only)
             .filter_map(|s| {
-                let svc_name = (|| -> Result<String, anyhow::Error> {
-                    Ok(md
-                        .pubsub_topics
-                        .iter()
-                        .find(|t| t.name == s.topic_encore_name)
-                        .context("could not find topic")?
-                        .subscriptions
-                        .iter()
-                        .find(|ms| ms.name == s.subscription_encore_name)
-                        .context("could not find sub")?
-                        .service_name
-                        .clone())
-                })();
-                if svc_name.is_err() {
-                    return None;
-                }
+                let topic = md
+                    .pubsub_topics
+                    .iter()
+                    .find(|t| t.name == s.topic_encore_name)?;
+                let sub = topic
+                    .subscriptions
+                    .iter()
+                    .find(|ms| ms.name == s.subscription_encore_name)?;
+
                 match deployment
                     .hosted_services
                     .iter()
-                    .any(|s| s.name == *svc_name.as_ref().unwrap())
+                    .any(|s| s.name == sub.service_name)
                 {
                     true => None,
-                    false => Some(Ok((s.rid.clone(), EncoreName::from(svc_name.unwrap())))),
+                    false => Some((
+                        s.rid.clone(),
+                        api::gateway::ProxiedPushSub {
+                            service_name: EncoreName::from(sub.service_name.clone()),
+                            topic: EncoreName::from(topic.name.clone()),
+                            subscription: EncoreName::from(sub.name.clone()),
+                        },
+                    )),
                 }
             })
-            .collect::<Result<HashMap<_, _>, anyhow::Error>>()
-            .context("failed to resolve gateway push subscriptions")?;
+            .collect();
 
         let pubsub = pubsub::Manager::new(tracer.clone(), resources.pubsub_clusters, &md)?;
         let objects =
@@ -388,6 +408,7 @@ impl Runtime {
             runtime: tokio_rt.handle().clone(),
             testing,
             proxied_push_subs,
+            metrics: &metrics_manager,
         }
         .build()
         .context("unable to initialize api manager")?;
@@ -411,6 +432,8 @@ impl Runtime {
             app_meta,
             compute,
             runtime: tokio_rt,
+            metrics: metrics_manager,
+            runtime_config,
         })
     }
 
@@ -445,6 +468,11 @@ impl Runtime {
     }
 
     #[inline]
+    pub fn metrics(&self) -> &metrics::Manager {
+        &self.metrics
+    }
+
+    #[inline]
     pub fn endpoints(&self) -> &api::EndpointMap {
         self.api.endpoints()
     }
@@ -468,6 +496,11 @@ impl Runtime {
     #[inline]
     pub fn app_meta(&self) -> &meta::AppMeta {
         &self.app_meta
+    }
+
+    #[inline]
+    pub fn runtime_config(&self) -> &runtime_config::RuntimeConfig {
+        &self.runtime_config
     }
 
     #[inline]
@@ -521,7 +554,17 @@ fn infra_config_from_env() -> Result<Option<runtimepb::RuntimeConfig>, ParseErro
 fn runtime_config_from_env() -> Result<runtimepb::RuntimeConfig, ParseError> {
     let cfg = match std::env::var("ENCORE_RUNTIME_CONFIG") {
         Ok(cfg) => cfg,
-        Err(std::env::VarError::NotPresent) => return Err(ParseError::EnvNotPresent),
+        Err(std::env::VarError::NotPresent) => {
+            // Not present. Check the ENCORE_RUNTIME_CONFIG_PATH environment variable.
+            match std::env::var("ENCORE_RUNTIME_CONFIG_PATH") {
+                Ok(path) => {
+                    let path = Path::new(&path);
+                    return parse_runtime_config(path);
+                }
+                Err(std::env::VarError::NotPresent) => return Err(ParseError::EnvNotPresent),
+                Err(e) => return Err(ParseError::EnvVar(e)),
+            }
+        }
         Err(e) => return Err(ParseError::EnvVar(e)),
     };
 
@@ -543,6 +586,11 @@ fn runtime_config_from_env() -> Result<runtimepb::RuntimeConfig, ParseError> {
             .map_err(ParseError::Base64)?;
         runtimepb::RuntimeConfig::decode(&decoded[..]).map_err(ParseError::Proto)
     }
+}
+
+fn parse_runtime_config(path: &Path) -> Result<runtimepb::RuntimeConfig, ParseError> {
+    let data = std::fs::read(path).map_err(ParseError::IO)?;
+    runtimepb::RuntimeConfig::decode(&data[..]).map_err(ParseError::Proto)
 }
 
 fn proc_config_from_env() -> Result<Option<proccfg::ProcessConfig>, ParseError> {

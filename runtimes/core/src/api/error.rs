@@ -43,9 +43,17 @@ where
 pub struct ExternalError<'a>(&'a Error);
 
 /// Cached environment variable for whether to include internal message in all errors.
-static ENCORE_INCLUDE_INTERNAL_MESSAGE_ERRORS: once_cell::sync::Lazy<bool> =
+static ENCORE_API_INCLUDE_INTERNAL_MESSAGE: once_cell::sync::Lazy<bool> =
     once_cell::sync::Lazy::new(|| {
-        std::env::var("ENCORE_INCLUDE_INTERNAL_MESSAGE_ERRORS")
+        std::env::var("ENCORE_API_INCLUDE_INTERNAL_MESSAGE")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false)
+    });
+
+/// Cached environment variable for whether to include the stack in error responses.
+static ENCORE_API_INCLUDE_ERROR_STACK: once_cell::sync::Lazy<bool> =
+    once_cell::sync::Lazy::new(|| {
+        std::env::var("ENCORE_API_INCLUDE_ERROR_STACK")
             .map(|v| !v.is_empty() && v != "0")
             .unwrap_or(false)
     });
@@ -61,9 +69,15 @@ impl Serialize for ExternalError<'_> {
         error.serialize_field("details", &self.0.details)?;
 
         // Include internal message even in external errors iff the environment variable is set.
-        if *ENCORE_INCLUDE_INTERNAL_MESSAGE_ERRORS {
+        if *ENCORE_API_INCLUDE_INTERNAL_MESSAGE {
             error.serialize_field("internal_message", &self.0.internal_message)?;
         }
+
+        // Do the same for stack traces.
+        if *ENCORE_API_INCLUDE_ERROR_STACK {
+            error.serialize_field("stack", &self.0.stack)?;
+        }
+
         error.end()
     }
 }
@@ -344,22 +358,44 @@ pub enum ErrCode {
 impl ErrCode {
     pub fn default_public_message(&self) -> &'static str {
         match self {
-            ErrCode::Canceled => "The operation was canceled.",
-            ErrCode::Unknown => "An unknown error occurred.",
-            ErrCode::InvalidArgument => "The request is invalid.",
-            ErrCode::DeadlineExceeded => "The operation timed out.",
-            ErrCode::NotFound => "The requested resource was not found.",
-            ErrCode::AlreadyExists => "The resource already exists.",
-            ErrCode::PermissionDenied => "The caller does not have permission to execute the specified operation.",
-            ErrCode::ResourceExhausted => "The resource has been exhausted.",
-            ErrCode::FailedPrecondition => "The operation was rejected because the system is not in a state required for the operation's execution.",
-            ErrCode::Aborted => "The operation was aborted.",
-            ErrCode::OutOfRange => "The operation was attempted past the valid range.",
-            ErrCode::Unimplemented => "The operation is not implemented or not supported/enabled in this service.",
-            ErrCode::Internal => "An internal error occurred.",
-            ErrCode::Unavailable => "The service is currently unavailable.",
-            ErrCode::DataLoss => "Unrecoverable data loss or corruption occurred.",
-            ErrCode::Unauthenticated => "The request does not have valid authentication credentials for the operation.",
+            ErrCode::Canceled => "the operation was canceled",
+            ErrCode::Unknown => "an unknown error occurred",
+            ErrCode::InvalidArgument => "the request is invalid",
+            ErrCode::DeadlineExceeded => "the operation timed out",
+            ErrCode::NotFound => "the requested resource was not found",
+            ErrCode::AlreadyExists => "the resource already exists",
+            ErrCode::PermissionDenied => "the caller does not have permission to execute the specified operation",
+            ErrCode::ResourceExhausted => "the resource has been exhausted",
+            ErrCode::FailedPrecondition => "the operation was rejected because the system is not in a state required for the operation's execution",
+            ErrCode::Aborted => "the operation was aborted",
+            ErrCode::OutOfRange => "the operation was attempted past the valid range",
+            ErrCode::Unimplemented => "the operation is not implemented or not supported/enabled in this service",
+            ErrCode::Internal => "an internal error occurred",
+            ErrCode::Unavailable => "the service is currently unavailable",
+            ErrCode::DataLoss => "unrecoverable data loss or corruption occurred",
+            ErrCode::Unauthenticated => "the request does not have valid authentication credentials for the operation",
+        }
+    }
+
+    /// Converts the error code to the trace protocol byte value.
+    pub fn to_trace_code(&self) -> u8 {
+        match self {
+            ErrCode::Canceled => 1,
+            ErrCode::Unknown => 2,
+            ErrCode::InvalidArgument => 3,
+            ErrCode::DeadlineExceeded => 4,
+            ErrCode::NotFound => 5,
+            ErrCode::AlreadyExists => 6,
+            ErrCode::PermissionDenied => 7,
+            ErrCode::ResourceExhausted => 8,
+            ErrCode::FailedPrecondition => 9,
+            ErrCode::Aborted => 10,
+            ErrCode::OutOfRange => 11,
+            ErrCode::Unimplemented => 12,
+            ErrCode::Internal => 13,
+            ErrCode::Unavailable => 14,
+            ErrCode::DataLoss => 15,
+            ErrCode::Unauthenticated => 16,
         }
     }
 

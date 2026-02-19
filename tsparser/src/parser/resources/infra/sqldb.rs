@@ -7,6 +7,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use swc_common::sync::Lrc;
 use swc_common::{Span, Spanned};
+use swc_ecma_ast as ast;
 
 use litparser::{report_and_continue, LitParser, Sp, ToParseErr};
 use litparser::{LocalRelPath, ParseResult};
@@ -37,6 +38,7 @@ pub struct SQLDatabase {
 pub enum MigrationFileSource {
     Prisma,
     Drizzle,
+    DrizzleV1,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -52,6 +54,7 @@ impl FromStr for MigrationFileSource {
         match input {
             "prisma" => Ok(MigrationFileSource::Prisma),
             "drizzle" => Ok(MigrationFileSource::Drizzle),
+            "drizzle/v1" => Ok(MigrationFileSource::DrizzleV1),
             _ => Err(MigrationFileSourceParseError::UnexpectedValue(
                 input.to_string(),
             )),
@@ -140,8 +143,10 @@ pub const SQLDB_PARSER: ResourceParser = ResourceParser {
                             &dir,
                             source.as_ref()
                         ));
-                        let non_seq_migrations =
-                            matches!(source, Some(MigrationFileSource::Prisma));
+                        let non_seq_migrations = matches!(
+                            source,
+                            Some(MigrationFileSource::Prisma | MigrationFileSource::DrizzleV1)
+                        );
                         Some(Sp::new(
                             cfg.path.span,
                             DBMigrations {
@@ -347,6 +352,74 @@ fn parse_prisma(span: Span, dir: &Path) -> ParseResult<Vec<DBMigration>> {
     Ok(migrations)
 }
 
+/// Parses Drizzle v1 migrations with the directory structure:
+/// migration-dir/
+/// ├── 0000_init_migration/
+/// │   ├── migration.sql
+/// │   └── snapshot.json
+/// ├── 0001_add_user_profile/
+/// │   ├── migration.sql
+/// │   └── snapshot.json
+/// └── meta/
+fn parse_drizzle_v1(span: Span, dir: &Path) -> ParseResult<Vec<DBMigration>> {
+    let mut migrations = vec![];
+
+    static DIR_NAME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(\d+)_(.+)$").unwrap());
+
+    visit_dirs(span, dir, 0, 1, &mut |entry| -> ParseResult<()> {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_str().ok_or(span.parse_err(format!(
+            "invalid migration filename: {}",
+            name.to_string_lossy()
+        )))?;
+
+        // Only look for migration.sql files
+        if name != "migration.sql" {
+            return Ok(());
+        }
+
+        let dir_name = path
+            .parent()
+            .ok_or(span.parse_err("migration file has no parent directory"))?
+            .file_name()
+            .ok_or(span.parse_err("migration directory has no name"))?
+            .to_str()
+            .ok_or(span.parse_err("migration directory has invalid name"))?;
+
+        // Skip the meta directory
+        if dir_name == "meta" {
+            return Ok(());
+        }
+
+        // Ensure the directory name matches the expected pattern
+        let captures = DIR_NAME_RE
+            .captures(dir_name)
+            .ok_or(span.parse_err(format!("invalid migration directory name: {dir_name}")))?;
+
+        migrations.push(DBMigration {
+            file_name: path
+                .strip_prefix(dir)
+                .map_err(|_| {
+                    span.parse_err(format!(
+                        "migration directory is not a subdirectory of {}",
+                        dir.display()
+                    ))
+                })?
+                .to_string_lossy()
+                .to_string(),
+            description: captures[2].to_string(),
+            number: captures[1]
+                .parse::<u64>()
+                .map_err(|err| span.parse_err(err.to_string()))?,
+        });
+
+        Ok(())
+    })?;
+
+    Ok(migrations)
+}
+
 fn parse_migrations(
     span: Span,
     dir: &Path,
@@ -360,6 +433,7 @@ fn parse_migrations(
 
     let mut migrations = match source {
         Some(MigrationFileSource::Drizzle) => parse_drizzle(span, dir),
+        Some(MigrationFileSource::DrizzleV1) => parse_drizzle_v1(span, dir),
         Some(MigrationFileSource::Prisma) => parse_prisma(span, dir),
         None => parse_default(span, dir),
     }?;
@@ -368,8 +442,54 @@ fn parse_migrations(
 }
 
 pub fn resolve_database_usage(data: &ResolveUsageData, db: Lrc<SQLDatabase>) -> Option<Usage> {
+    // Validate database queries, when possible.
+    match &data.expr.kind {
+        UsageExprKind::TemplateCall(call) => {
+            let method = &call.method.sym;
+            if method == "query" || method == "queryRow" || method == "queryAll" || method == "exec"
+            {
+                if let Some(err) = parse_template_query(&call.tpl) {
+                    let msg = match err {
+                        pg_query::Error::Parse(msg) => msg,
+                        other => other.to_string(),
+                    };
+                    call.tpl
+                        .tpl
+                        .span
+                        .err(&format!("invalid database query: {}", msg));
+                }
+            }
+        }
+
+        UsageExprKind::MethodCall(call) => {
+            let method = &call.method.sym;
+            if method == "rawQuery"
+                || method == "rawQueryRow"
+                || method == "rawQueryAll"
+                || method == "rawExec"
+            {
+                // If we have string literal as the query, validate it.
+                if let Some(ast::Lit::Str(str)) =
+                    call.call.args.first().and_then(|arg| arg.expr.as_lit())
+                {
+                    if let Err(err) = pg_query::parse(str.value.as_str()) {
+                        let msg = match err {
+                            pg_query::Error::Parse(msg) => msg,
+                            other => other.to_string(),
+                        };
+                        str.span.err(&format!("invalid database query: {}", msg));
+                    }
+                }
+            }
+        }
+
+        // Ignore other usage expressions.
+        _ => {}
+    }
+
     match &data.expr.kind {
         UsageExprKind::MethodCall(_)
+        | UsageExprKind::TemplateCall(_)
         | UsageExprKind::FieldAccess(_)
         | UsageExprKind::CallArg(_)
         | UsageExprKind::ConstructorArg(_) => Some(Usage::AccessDatabase(AccessDatabaseUsage {
@@ -388,4 +508,16 @@ pub fn resolve_database_usage(data: &ResolveUsageData, db: Lrc<SQLDatabase>) -> 
 pub struct AccessDatabaseUsage {
     pub range: Range,
     pub db: Lrc<SQLDatabase>,
+}
+
+fn parse_template_query(tpl: &ast::TaggedTpl) -> Option<pg_query::Error> {
+    let mut query = String::new();
+    for (i, q) in tpl.tpl.quasis.iter().enumerate() {
+        query.push_str(&q.raw);
+        if !q.tail {
+            query.push_str(&format!("${}", i + 1));
+        }
+    }
+
+    pg_query::parse(&query).err()
 }

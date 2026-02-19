@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
@@ -55,6 +57,7 @@ type Run struct {
 	SvcProxy        *svcproxy.SvcProxy
 	ResourceManager *infra.ResourceManager
 	NS              *namespace.Namespace
+	TempDir         string
 
 	Builder builder.Impl
 	log     zerolog.Logger
@@ -98,6 +101,12 @@ type StartParams struct {
 
 	// Debug specifies to compile the application for debugging.
 	Debug builder.DebugMode
+
+	// LogLevel overrides the default log level for the run.
+	LogLevel option.Option[string]
+
+	// ScrubSensitiveData enables scrubbing of sensitive data in local traces.
+	ScrubSensitiveData bool
 }
 
 // BrowserMode specifies how to open the browser when starting 'encore run'.
@@ -156,6 +165,10 @@ func (mgr *Manager) Start(ctx context.Context, params StartParams) (run *Run, er
 		return nil, errors.Wrap(err, "failed to create service proxy")
 	}
 
+	tempDir, err := os.MkdirTemp("", "encore-run")
+	if err != nil {
+		return nil, errors.Wrap(err, "couldn't create temp dir")
+	}
 	run = &Run{
 		ID:              GenID(),
 		App:             params.App,
@@ -166,6 +179,7 @@ func (mgr *Manager) Start(ctx context.Context, params StartParams) (run *Run, er
 		log:             logger,
 		Mgr:             mgr,
 		Params:          &params,
+		TempDir:         tempDir,
 		secrets:         mgr.Secret.Load(params.App),
 		ctx:             ctx,
 		exited:          make(chan struct{}),
@@ -207,6 +221,11 @@ func (r *Run) Close() {
 	if r.Builder != nil {
 		_ = r.Builder.Close()
 	}
+
+	if r.TempDir != "" {
+		_ = os.RemoveAll(r.TempDir)
+	}
+
 	r.SvcProxy.Close()
 	r.ResourceManager.StopAll()
 }
@@ -365,6 +384,8 @@ func (r *Run) buildAndStart(ctx context.Context, tracker *optracker.OpTracker, i
 
 		// Use the local JS runtime if this is a development build.
 		UseLocalJSRuntime: version.Channel == version.DevBuild,
+
+		DisableSensitiveScrubbing: !r.Params.ScrubSensitiveData,
 	}
 
 	// A context that is canceled when the proc exits.
@@ -377,12 +398,22 @@ func (r *Run) buildAndStart(ctx context.Context, tracker *optracker.OpTracker, i
 		}
 	}()
 
+	prepareResult, err := r.Builder.Prepare(procCtx, builder.PrepareParams{
+		Build:      buildInfo,
+		App:        r.App,
+		WorkingDir: r.Params.WorkingDir,
+	})
+	if err != nil {
+		return err
+	}
+
 	parse, err := r.Builder.Parse(procCtx, builder.ParseParams{
 		Build:       buildInfo,
 		App:         r.App,
 		Experiments: expSet,
 		WorkingDir:  r.Params.WorkingDir,
 		ParseTests:  false,
+		Prepare:     prepareResult,
 	})
 	if err != nil {
 		// Don't use the error itself in tracker.Fail, as it will lead to duplicate error output.
@@ -518,7 +549,7 @@ func (r *Run) StartProcGroup(params *StartProcGroupParams) (p *ProcGroup, err er
 	userEnv := append([]string{
 		"ENCORE_RUNTIME_LOG=error",
 		// Always include internal messages when developing locally.
-		"ENCORE_INCLUDE_INTERNAL_MESSAGE_ERRORS=1",
+		"ENCORE_API_INCLUDE_INTERNAL_MESSAGE=1",
 	}, params.Environ...)
 
 	daemonProxyAddr, err := netip.ParseAddrPort(strings.ReplaceAll(r.ListenAddr, "localhost", "127.0.0.1"))
@@ -534,24 +565,42 @@ func (r *Run) StartProcGroup(params *StartProcGroupParams) (p *ProcGroup, err er
 		}
 	}
 
+	var runtimeConfigPath option.Option[string]
+	var metaPath option.Option[string]
+
+	if r.TempDir != "" {
+		if r.Builder.UseNewRuntimeConfig() {
+			runtimeConfigPath = option.Some(filepath.Join(r.TempDir, "runtime_config.pb"))
+		} else {
+			runtimeConfigPath = option.Some(filepath.Join(r.TempDir, "runtime_config.json"))
+		}
+
+		if r.Builder.NeedsMeta() {
+			metaPath = option.Some(filepath.Join(r.TempDir, "meta.pb"))
+		}
+	}
+
 	authKey := genAuthKey()
 	p = newProcGroup(procGroupOptions{
 		ProcID:  pid,
 		Run:     r,
 		AuthKey: authKey,
 		ConfigGen: &RuntimeConfigGenerator{
-			app:            r.App,
-			infraManager:   r.ResourceManager,
-			md:             params.Meta,
-			AppID:          option.Some(r.ID),
-			EnvID:          option.Some(pid),
-			TraceEndpoint:  option.Some(fmt.Sprintf("http://localhost:%d/trace", r.Mgr.RuntimePort)),
-			AuthKey:        authKey,
-			Gateways:       gateways,
-			DefinedSecrets: params.Secrets,
-			SvcConfigs:     params.ServiceConfigs,
-			DeployID:       option.Some(fmt.Sprintf("run_%s", xid.New().String())),
-			IncludeMetaEnv: r.Builder.NeedsMeta(),
+			app:               r.App,
+			infraManager:      r.ResourceManager,
+			md:                params.Meta,
+			AppID:             option.Some(r.ID),
+			EnvID:             option.Some(pid),
+			TraceEndpoint:     option.Some(fmt.Sprintf("http://localhost:%d/trace", r.Mgr.RuntimePort)),
+			AuthKey:           authKey,
+			Gateways:          gateways,
+			DefinedSecrets:    params.Secrets,
+			SvcConfigs:        params.ServiceConfigs,
+			DeployID:          option.Some(fmt.Sprintf("run_%s", xid.New().String())),
+			IncludeMeta:       r.Builder.NeedsMeta(),
+			MetaPath:          metaPath,
+			RuntimeConfigPath: runtimeConfigPath,
+			LogLevel:          r.Params.LogLevel,
 		},
 		Experiments: params.Experiments,
 		Meta:        params.Meta,
@@ -561,12 +610,12 @@ func (r *Run) StartProcGroup(params *StartProcGroupParams) (p *ProcGroup, err er
 	})
 
 	if isSingleProc(params.Outputs) {
-		conf, err := p.ConfigGen.AllInOneProc()
+		entrypoint := params.Outputs[0].GetEntrypoints()[0]
+
+		conf, err := p.ConfigGen.AllInOneProc(entrypoint.UseRuntimeConfigV2)
 		if err != nil {
 			return nil, err
 		}
-
-		entrypoint := params.Outputs[0].GetEntrypoints()[0]
 
 		// Generate the environmental variables for the process
 		procEnv, err := p.ConfigGen.ProcEnvs(conf, entrypoint.UseRuntimeConfigV2)
@@ -770,7 +819,10 @@ func encodeSecretsEnv(secrets map[string]string) string {
 		buf.WriteByte('=')
 		buf.WriteString(base64.RawURLEncoding.EncodeToString([]byte(secrets[k])))
 	}
-	return buf.String()
+
+	gzipped := gzipBytes(buf.Bytes())
+	str := "gzip:" + base64.StdEncoding.EncodeToString(gzipped)
+	return str
 }
 
 func usesSecrets(md *meta.Data) bool {

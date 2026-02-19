@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"encore.dev/appruntime/exported/model"
+	"encore.dev/appruntime/exported/scrub"
 	"encore.dev/appruntime/exported/stack"
 	"encore.dev/beta/errs"
 	"encore.dev/types/uuid"
@@ -166,8 +167,9 @@ type spanEndEventData struct {
 }
 
 func (l *Log) newSpanEndEvent(data spanEndEventData) EventBuffer {
-	tb := NewEventBuffer(8 + 12 + 8 + data.ExtraSpace)
+	tb := NewEventBuffer(8 + 1 + 12 + 8 + data.ExtraSpace)
 	tb.Duration(data.Duration)
+	tb.StatusCode(errs.Code(data.Err))
 	tb.ErrWithStack(data.Err)
 	if panicStack, ok := errs.Meta(data.Err)["panic_stack"].(stack.Stack); ok {
 		tb.FormattedStack(panicStack)
@@ -217,8 +219,11 @@ func (l *Log) RequestSpanStart(req *model.Request, goid uint32) {
 		tb.String(pp.Value)
 	}
 
-	l.logHeaders(&tb, data.RequestHeaders)
-	tb.ByteString(data.NonRawPayload)
+	l.logHeaders(&tb, data.RequestHeaders, desc.ScrubRequestHeaders)
+
+	scrubbedRequest := scrub.JSON(data.NonRawPayload, desc.ScrubRequestPaths, []byte(`"[REDACTED]"`))
+	tb.ByteString(scrubbedRequest)
+
 	tb.String(req.ExtCorrelationID)
 	tb.String(string(data.UserID))
 	tb.Bool(data.Mocked)
@@ -233,26 +238,32 @@ func (l *Log) RequestSpanStart(req *model.Request, goid uint32) {
 
 type RequestSpanEndParams struct {
 	EventParams
-	Req  *model.Request
-	Resp *model.Response
+	Req           *model.Request
+	Resp          *model.Response
+	CallerEventID model.TraceEventID
 }
 
 func (l *Log) RequestSpanEnd(p RequestSpanEndParams) {
 	desc := p.Req.RPCData.Desc
+	uid := string(p.Req.RPCData.UserID)
+	scrubbedResponse := scrub.JSON(p.Resp.Payload, desc.ScrubResponsePaths, []byte(`"[REDACTED]"`))
+
 	tb := l.newSpanEndEvent(spanEndEventData{
 		Duration:      p.Resp.Duration,
 		Err:           p.Resp.Err,
 		ParentTraceID: p.Req.ParentTraceID,
 		ParentSpanID:  p.Req.ParentSpanID,
-		ExtraSpace:    len(desc.Service) + len(desc.Endpoint) + 64 + len(p.Resp.Payload),
+		ExtraSpace:    len(desc.Service) + len(desc.Endpoint) + 64 + len(scrubbedResponse) + len(uid) + 2,
 	})
 
 	tb.String(desc.Service)
 	tb.String(desc.Endpoint)
 
 	tb.UVarint(uint64(p.Resp.HTTPStatus))
-	l.logHeaders(&tb, p.Resp.RawResponseHeaders)
-	tb.ByteString(p.Resp.Payload)
+	l.logHeaders(&tb, p.Resp.RawResponseHeaders, desc.ScrubResponseHeaders)
+	tb.ByteString(scrubbedResponse)
+	tb.UVarint(uint64(p.CallerEventID))
+	tb.String(uid)
 
 	l.Add(Event{
 		Type:    RequestSpanEnd,
@@ -277,7 +288,9 @@ func (l *Log) AuthSpanStart(req *model.Request, goid uint32) {
 
 	tb.String(desc.Service)
 	tb.String(desc.Endpoint)
-	tb.ByteString(data.NonRawPayload)
+
+	scrubbed := scrub.JSON(data.NonRawPayload, desc.ScrubRequestPaths, []byte(`"[REDACTED]"`))
+	tb.ByteString(scrubbed)
 
 	l.Add(Event{
 		Type:    AuthSpanStart,
@@ -325,16 +338,16 @@ func (l *Log) PubsubMessageSpanStart(req *model.Request, goid uint32) {
 		Goid:             goid,
 		CallerEventID:    req.CallerEventID,
 		ExtCorrelationID: req.ExtCorrelationID,
-		ExtraSpace:       len(data.Service) + len(data.Topic) + len(data.Subscription) + len(data.Payload) + 20,
+		ExtraSpace:       len(data.Desc.Service) + len(data.Desc.Topic) + len(data.Desc.Subscription) + len(data.Payload) + 20,
 	})
 
-	tb.String(data.Service)
-	tb.String(data.Topic)
-	tb.String(data.Subscription)
+	tb.String(data.Desc.Service)
+	tb.String(data.Desc.Topic)
+	tb.String(data.Desc.Subscription)
 	tb.String(data.MessageID)
 	tb.UVarint(uint64(data.Attempt))
 	tb.Time(data.Published)
-	tb.ByteString(data.Payload)
+	tb.ByteString(scrub.JSON(data.Payload, req.MsgData.Desc.ScrubPaths, []byte(`"[REDACTED]"`)))
 
 	l.Add(Event{
 		Type:    PubsubMessageSpanStart,
@@ -357,12 +370,13 @@ func (l *Log) PubsubMessageSpanEnd(p PubsubMessageSpanEndParams) {
 		Err:           p.Resp.Err,
 		ParentTraceID: p.Req.ParentTraceID,
 		ParentSpanID:  p.Req.ParentSpanID,
-		ExtraSpace:    len(msg.Service) + len(msg.Topic) + len(msg.Subscription) + 4,
+		ExtraSpace:    len(msg.Desc.Service) + len(msg.Desc.Topic) + len(msg.Desc.Subscription) + len(msg.MessageID) + 6,
 	})
 
-	tb.String(msg.Service)
-	tb.String(msg.Topic)
-	tb.String(msg.Subscription)
+	tb.String(msg.Desc.Service)
+	tb.String(msg.Desc.Topic)
+	tb.String(msg.Desc.Subscription)
+	tb.String(msg.MessageID)
 
 	l.Add(Event{
 		Type:    PubsubMessageSpanEnd,
@@ -411,18 +425,20 @@ func (l *Log) TestSpanEnd(p TestSpanEndParams) {
 	if desc.Current.Failed() {
 		err = errors.New("test failed")
 	}
+	uid := string(desc.UserID)
 	tb := l.newSpanEndEvent(spanEndEventData{
 		Duration:      time.Since(p.Req.Start),
 		Err:           err,
 		ParentTraceID: p.Req.ParentTraceID,
 		ParentSpanID:  p.Req.ParentSpanID,
-		ExtraSpace:    len(desc.Service) + len(desc.Current.Name()) + 20,
+		ExtraSpace:    len(desc.Service) + len(desc.Current.Name()) + len(uid) + 20,
 	})
 
 	tb.String(desc.Service)
 	tb.String(desc.Current.Name())
 	tb.Bool(p.Failed)
 	tb.Bool(p.Skipped)
+	tb.String(uid)
 
 	l.Add(Event{
 		Type:    TestEnd,
@@ -553,7 +569,7 @@ func (l *Log) DBTransactionEnd(p DBTransactionEndParams) {
 
 type PubsubPublishStartParams struct {
 	EventParams
-	Topic   string
+	Desc    *model.PubSubTopicDesc
 	Message []byte
 	Stack   stack.Stack
 }
@@ -564,8 +580,8 @@ func (l *Log) PubsubPublishStart(p PubsubPublishStartParams) EventID {
 		ExtraSpace: 64,
 	})
 
-	tb.String(p.Topic)
-	tb.ByteString(p.Message)
+	tb.String(p.Desc.Topic)
+	tb.ByteString(scrub.JSON(p.Message, p.Desc.ScrubPaths, []byte(`"[REDACTED]"`)))
 	tb.Stack(p.Stack)
 
 	return l.Add(Event{
@@ -1033,11 +1049,13 @@ func (l *Log) BucketDeleteObjectsEnd(p BucketDeleteObjectsEndParams) {
 	})
 }
 
-func (l *Log) logHeaders(tb *EventBuffer, headers http.Header) {
+func (l *Log) logHeaders(tb *EventBuffer, headers http.Header, scrubHeaders map[string]bool) {
 	tb.UVarint(uint64(len(headers)))
 	for k, v := range headers {
 		firstVal := ""
-		if len(v) > 0 {
+		if scrubHeaders[k] {
+			firstVal = "[REDACTED]"
+		} else if len(v) > 0 {
 			firstVal = v[0]
 		}
 		tb.String(k)

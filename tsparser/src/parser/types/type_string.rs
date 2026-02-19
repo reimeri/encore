@@ -58,6 +58,7 @@ where
             Type::Validation(v) => self.render_validation(v),
             Type::Validated(v) => self.render_validated(v),
             Type::Custom(c) => self.render_custom(c),
+            Type::Function(func) => self.render_function(func),
         }
     }
 
@@ -156,21 +157,49 @@ where
     fn render_custom(&mut self, c: &Custom) -> std::fmt::Result {
         match c {
             Custom::WireSpec(s) => self.render_wire_spec(s),
+            Custom::Decimal => write!(self.buf, "Decimal"),
         }
     }
 
     fn render_wire_spec(&mut self, s: &WireSpec) -> std::fmt::Result {
         match &s.location {
-            super::WireLocation::Query => self.buf.write_str("Query<")?,
-            super::WireLocation::Header => self.buf.write_str("Header<")?,
-            super::WireLocation::PubSubAttr => self.buf.write_str("Attribute<")?,
-            super::WireLocation::Cookie => self.buf.write_str("Cookie<")?,
+            super::WireLocation::Query => {
+                self.buf.write_str("Query<")?;
+                self.render_type(&s.underlying)?;
+                if let Some(name) = &s.name_override {
+                    self.buf.write_fmt(format_args!(", {name:#?}"))?;
+                }
+                self.buf.write_char('>')
+            }
+            super::WireLocation::Header => {
+                self.buf.write_str("Header<")?;
+                self.render_type(&s.underlying)?;
+                if let Some(name) = &s.name_override {
+                    self.buf.write_fmt(format_args!(", {name:#?}"))?;
+                }
+                self.buf.write_char('>')
+            }
+            super::WireLocation::PubSubAttr => {
+                self.buf.write_str("Attribute<")?;
+                self.render_type(&s.underlying)?;
+                if let Some(name) = &s.name_override {
+                    self.buf.write_fmt(format_args!(", {name:#?}"))?;
+                }
+                self.buf.write_char('>')
+            }
+            super::WireLocation::Cookie => {
+                self.buf.write_str("Cookie<")?;
+                self.render_type(&s.underlying)?;
+                if let Some(name) = &s.name_override {
+                    self.buf.write_fmt(format_args!(", {name:#?}"))?;
+                }
+                self.buf.write_char('>')
+            }
+            super::WireLocation::HttpStatus => {
+                // HttpStatus doesn't take generic parameters, it's just the union type itself
+                self.buf.write_str("HttpStatus")
+            }
         }
-        self.render_type(&s.underlying)?;
-        if let Some(name) = &s.name_override {
-            self.buf.write_fmt(format_args!(", {name:#?}"))?;
-        }
-        self.buf.write_char('>')
     }
 
     fn render_generic(&mut self, g: &Generic) -> std::fmt::Result {
@@ -210,5 +239,32 @@ where
                 self.render_type(&i.y)
             }
         }
+    }
+
+    fn render_function(&mut self, func: &super::FunctionType) -> std::fmt::Result {
+        self.buf.write_char('(')?;
+
+        for (i, param) in func.params.iter().enumerate() {
+            if i > 0 {
+                self.buf.write_str(", ")?;
+            }
+
+            if let Some(name) = &param.name {
+                self.buf.write_str(name)?;
+                if param.optional {
+                    self.buf.write_char('?')?;
+                }
+                self.buf.write_str(": ")?;
+            }
+
+            if param.rest {
+                self.buf.write_str("...")?;
+            }
+
+            self.render_type(&param.typ)?;
+        }
+
+        self.buf.write_str(") => ")?;
+        self.render_type(&func.return_type)
     }
 }

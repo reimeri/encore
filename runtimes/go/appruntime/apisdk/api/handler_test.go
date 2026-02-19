@@ -196,6 +196,8 @@ func TestDescGeneratesTrace(t *testing.T) {
 						Raw:          false,
 						RequestType:  reflect.TypeOf(&mockReq{}),
 						ResponseType: reflect.TypeOf(&mockResp{}),
+						Exposed:      true,
+						AuthRequired: false,
 					},
 					HTTPMethod:     "POST",
 					Path:           "/path/hello",
@@ -204,7 +206,7 @@ func TestDescGeneratesTrace(t *testing.T) {
 					AuthData:       nil,
 					TypedPayload:   &mockReq{Body: "foo"},
 					NonRawPayload:  []byte(`{"Body":"foo"}`),
-					RequestHeaders: http.Header{"Content-Type": []string{"application/json"}},
+					RequestHeaders: http.Header{"Content-Type": []string{"application/json"}, "Host": []string{"example.com"}},
 				},
 			},
 		},
@@ -226,6 +228,8 @@ func TestDescGeneratesTrace(t *testing.T) {
 						Raw:          false,
 						RequestType:  reflect.TypeOf(&mockReq{}),
 						ResponseType: reflect.TypeOf(&mockResp{}),
+						Exposed:      true,
+						AuthRequired: false,
 					},
 					HTTPMethod:     "POST",
 					Path:           "/path/hello",
@@ -233,7 +237,7 @@ func TestDescGeneratesTrace(t *testing.T) {
 					UserID:         "",
 					AuthData:       nil,
 					TypedPayload:   nil,
-					RequestHeaders: nil,
+					RequestHeaders: http.Header{"Host": []string{"example.com"}},
 				},
 			},
 		},
@@ -263,6 +267,8 @@ func TestDescGeneratesTrace(t *testing.T) {
 						Raw:          true,
 						RequestType:  reflect.TypeOf(&rawMockReq{}),
 						ResponseType: nil,
+						Exposed:      true,
+						AuthRequired: false,
 					},
 					HTTPMethod:     "POST",
 					Path:           "/path/hello",
@@ -270,7 +276,7 @@ func TestDescGeneratesTrace(t *testing.T) {
 					UserID:         "",
 					AuthData:       nil,
 					TypedPayload:   nil,
-					RequestHeaders: http.Header{"Content-Type": []string{"application/json"}},
+					RequestHeaders: http.Header{"Content-Type": []string{"application/json"}, "Host": []string{"example.com"}},
 				},
 			},
 		},
@@ -460,7 +466,7 @@ func newMockAPIDesc(access api.Access) *api.Desc[*mockReq, *mockResp] {
 		AppHandler: func(ctx context.Context, req *mockReq) (*mockResp, error) {
 			return &mockResp{Message: req.Body}, nil
 		},
-		EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp *mockResp) error {
+		EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp *mockResp, status int) error {
 			data, err := json.Marshal(resp)
 			_, _ = w.Write(data)
 			return err
@@ -507,7 +513,7 @@ func newRawMockAPIDesc(access api.Access, handler http.HandlerFunc) *api.Desc[*r
 				handler.ServeHTTP(w, req)
 			}
 		},
-		EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp api.Void) error {
+		EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp api.Void, status int) error {
 			return nil
 		},
 		CloneResp: func(resp api.Void) (api.Void, error) {

@@ -176,7 +176,7 @@ func NewSubscription[T any](topic *Topic[T], name string, cfg SubscriptionConfig
 		if val, ok := attrs[parentSampledAttribute]; ok {
 			traced, _ = strconv.ParseBool(val)
 		} else {
-			traced = mgr.rt.SampleTrace()
+			traced = mgr.rt.SampleDefault()
 		}
 
 		// Start the request tracing span
@@ -188,9 +188,12 @@ func NewSubscription[T any](topic *Topic[T], name string, cfg SubscriptionConfig
 			ExtCorrelationID: extCorrelationID,
 			Start:            time.Now(),
 			MsgData: &model.PubSubMsgData{
-				Service:        staticCfg.Service,
-				Topic:          topic.runtimeCfg.EncoreName,
-				Subscription:   subscription.EncoreName,
+				Desc: &model.PubSubSubscriptionDesc{
+					Service:      staticCfg.Service,
+					Topic:        topic.runtimeCfg.EncoreName,
+					Subscription: subscription.EncoreName,
+					ScrubPaths:   staticCfg.ScrubPaths,
+				},
 				MessageID:      msgID,
 				Attempt:        deliveryAttempt,
 				Published:      publishTime,
@@ -246,7 +249,7 @@ func NewSubscription[T any](topic *Topic[T], name string, cfg SubscriptionConfig
 
 	if !mgr.static.Testing {
 		// Log the subscription registration - unless we're in unit tests
-		log.Info().Msg("registered subscription")
+		log.Trace().Msg("registered subscription")
 	}
 
 	return &Subscription[T]{topic: topic, name: name, cfg: cfg, mgr: mgr}

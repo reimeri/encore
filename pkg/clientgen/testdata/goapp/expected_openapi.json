@@ -45,6 +45,7 @@
         "required": [
           "Baz"
         ],
+        "title": "BarType docs\n",
         "type": "object"
       },
       "authentication.User": {
@@ -103,13 +104,36 @@
         ],
         "type": "object"
       },
+      "svc.DocumentedUser": {
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ],
+        "title": "DocumentedUser represents a user in the system with profile information\n",
+        "type": "object"
+      },
       "svc.Foo": {
         "format": "int64",
+        "title": "Foo represents a documented integer type\n",
         "type": "integer"
       },
       "svc.Recursive": {
         "properties": {
           "Map": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/svc.Recursive"
+            },
+            "type": "object"
+          },
+          "MapOfOptional": {
             "additionalProperties": {
               "$ref": "#/components/schemas/svc.Recursive"
             },
@@ -123,18 +147,31 @@
               "$ref": "#/components/schemas/svc.Recursive"
             },
             "type": "array"
+          },
+          "SliceOfOptional": {
+            "items": {
+              "$ref": "#/components/schemas/svc.Recursive"
+            },
+            "type": "array"
           }
         },
         "required": [
           "Slice",
-          "Map"
+          "SliceOfOptional",
+          "Map",
+          "MapOfOptional"
         ],
         "type": "object"
       },
       "svc.Request": {
         "properties": {
           "Foo": {
-            "$ref": "#/components/schemas/svc.Foo"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/svc.Foo"
+              }
+            ],
+            "title": "Foo is good\n"
           },
           "HeaderBaz": {
             "type": "string"
@@ -514,6 +551,73 @@
         }
       }
     },
+    "/svc.CreateDocumentedOrder": {
+      "post": {
+        "operationId": "POST:svc.CreateDocumentedOrder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "customer": {
+                    "$ref": "#/components/schemas/svc.DocumentedUser"
+                  },
+                  "opt_ref": {
+                    "$ref": "#/components/schemas/svc.DocumentedUser"
+                  },
+                  "order_id": {
+                    "type": "string"
+                  },
+                  "req_ref": {
+                    "$ref": "#/components/schemas/svc.DocumentedUser"
+                  }
+                },
+                "required": [
+                  "customer",
+                  "order_id",
+                  "req_ref"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "customer": {
+                      "$ref": "#/components/schemas/svc.DocumentedUser"
+                    },
+                    "opt_ref": {
+                      "$ref": "#/components/schemas/svc.DocumentedUser"
+                    },
+                    "order_id": {
+                      "type": "string"
+                    },
+                    "req_ref": {
+                      "$ref": "#/components/schemas/svc.DocumentedUser"
+                    }
+                  },
+                  "required": [
+                    "customer",
+                    "order_id",
+                    "req_ref"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success response"
+          },
+          "default": {
+            "$ref": "#/components/responses/APIError"
+          }
+        }
+      }
+    },
     "/svc.DummyAPI": {
       "post": {
         "operationId": "POST:svc.DummyAPI",
@@ -682,6 +786,18 @@
               "type": "integer"
             },
             "style": "form"
+          },
+          {
+            "allowEmptyValue": true,
+            "description": "An optional generic type\n",
+            "explode": true,
+            "in": "query",
+            "name": "optional",
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "style": "form"
           }
         ],
         "responses": {
@@ -732,6 +848,14 @@
                 "required": true,
                 "schema": {
                   "type": "object"
+                },
+                "style": "simple"
+              },
+              "x-optional": {
+                "allowEmptyValue": true,
+                "explode": true,
+                "schema": {
+                  "type": "string"
                 },
                 "style": "simple"
               },
@@ -887,6 +1011,16 @@
               "type": "string"
             },
             "style": "simple"
+          },
+          {
+            "allowEmptyValue": true,
+            "explode": true,
+            "in": "header",
+            "name": "x-optional",
+            "schema": {
+              "type": "string"
+            },
+            "style": "simple"
           }
         ],
         "responses": {
@@ -958,6 +1092,12 @@
                     },
                     "type": "object"
                   },
+                  "MapOfOptional": {
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/svc.Recursive"
+                    },
+                    "type": "object"
+                  },
                   "Optional": {
                     "$ref": "#/components/schemas/svc.Recursive"
                   },
@@ -966,11 +1106,19 @@
                       "$ref": "#/components/schemas/svc.Recursive"
                     },
                     "type": "array"
+                  },
+                  "SliceOfOptional": {
+                    "items": {
+                      "$ref": "#/components/schemas/svc.Recursive"
+                    },
+                    "type": "array"
                   }
                 },
                 "required": [
                   "Slice",
-                  "Map"
+                  "SliceOfOptional",
+                  "Map",
+                  "MapOfOptional"
                 ],
                 "type": "object"
               }
@@ -989,6 +1137,12 @@
                       },
                       "type": "object"
                     },
+                    "MapOfOptional": {
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/svc.Recursive"
+                      },
+                      "type": "object"
+                    },
                     "Optional": {
                       "$ref": "#/components/schemas/svc.Recursive"
                     },
@@ -997,11 +1151,19 @@
                         "$ref": "#/components/schemas/svc.Recursive"
                       },
                       "type": "array"
+                    },
+                    "SliceOfOptional": {
+                      "items": {
+                        "$ref": "#/components/schemas/svc.Recursive"
+                      },
+                      "type": "array"
                     }
                   },
                   "required": [
                     "Slice",
-                    "Map"
+                    "SliceOfOptional",
+                    "Map",
+                    "MapOfOptional"
                   ],
                   "type": "object"
                 }
@@ -1061,6 +1223,10 @@
                   "Dave": {
                     "title": "This generic type complicates the whole thing 🙈\n",
                     "type": "string"
+                  },
+                  "optional": {
+                    "title": "An optional generic type\n",
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -1092,6 +1258,10 @@
                     },
                     "Dave": {
                       "title": "This generic type complicates the whole thing 🙈\n",
+                      "type": "number"
+                    },
+                    "optional": {
+                      "title": "An optional generic type\n",
                       "type": "number"
                     }
                   },

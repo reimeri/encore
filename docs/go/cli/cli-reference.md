@@ -236,7 +236,13 @@ Secret management commands
 
 #### Set
 
-Sets a secret value
+Set a secret value for a specific environment:
+
+```shell
+$ encore secret set --env <env-name> <secret-name>
+```
+
+Set a secret value for an environment type:
 
 ```shell
 $ encore secret set --type <types> <secret-name>
@@ -248,14 +254,18 @@ Where `<types>` defines which environment types the secret value applies to. Use
 
 Entering a secret directly in terminal:
 
-    $ encore secret set --type dev MySecret
-    Enter secret value: ...
-    Successfully created secret value for MySecret.
+```shell
+$ encore secret set --type dev MySecret
+Enter secret value: ...
+Successfully created secret value for MySecret.
+```
 
 Piping a secret from a file:
 
-    $ encore secret set --type dev,local MySecret < my-secret.txt
-    Successfully created secret value for MySecret.
+```shell
+$ encore secret set --type dev,local MySecret < my-secret.txt
+Successfully created secret value for MySecret.
+```
 
 Note that this strips trailing newlines from the secret value.
 
@@ -343,3 +353,15 @@ $ encore build docker
 
 `--base string` defines the base image to build from (default "scratch")
 `--push` pushes image to remote repository
+
+## LLM Rules
+
+Generate llm rules in an existing app
+
+#### Init
+
+Initialize the llm rules files
+
+```shell
+$ encore llm-rules init
+```

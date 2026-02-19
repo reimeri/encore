@@ -103,6 +103,11 @@ export interface APIOptions {
    * Tags to filter endpoints when generating clients and in middlewares.
    */
   tags?: string[];
+
+  /**
+   * When set to true, request information such as payloads and headers will be excluded from traces.
+   */
+  sensitive?: boolean;
 }
 
 export interface StreamOptions {
@@ -132,6 +137,16 @@ export interface StreamOptions {
    * Defaults to false if not specified.
    */
   auth?: boolean;
+
+  /**
+   * Tags to filter endpoints when generating clients and in middlewares.
+   */
+  tags?: string[];
+
+  /**
+   * When set to true, request information such as payloads and headers will be excluded from traces.
+   */
+  sensitive?: boolean;
 }
 
 type HandlerFn<Params, Response> = Params extends void
@@ -290,6 +305,19 @@ export interface StaticOptions {
    * Defaults to 404.
    */
   notFoundStatus?: number;
+
+  /**
+   * Custom HTTP headers to apply to all static files served.
+   *
+   * @example
+   * ```typescript
+   * headers: {
+   *   "Cache-Control": "public, max-age=3600",
+   *   "X-Content-Type-Options": "nosniff",
+   * }
+   * ```
+   */
+  headers?: Record<string, string | string[]>;
 }
 
 export class StaticAssets {
@@ -519,6 +547,11 @@ export function middleware(
 export interface CallOpts {
   /* authData?: AuthData */
 }
+
+import { HttpStatusValues } from "./httpstatus";
+export const HttpStatus = HttpStatusValues;
+export type HttpStatus =
+  (typeof HttpStatusValues)[keyof typeof HttpStatusValues];
 
 export { APIError, ErrCode } from "./error";
 export { Gateway, type GatewayConfig } from "./gateway";

@@ -20,11 +20,12 @@ import (
 type WireLoc string
 
 const (
-	Undefined WireLoc = "undefined" // Parameter location is undefined
-	Header    WireLoc = "header"    // Parameter is placed in the HTTP header
-	Query     WireLoc = "query"     // Parameter is placed in the query string
-	Body      WireLoc = "body"      // Parameter is placed in the body
-	Cookie    WireLoc = "cookie"    // Parameter is placed in cookies
+	Undefined  WireLoc = "undefined"  // Parameter location is undefined
+	Header     WireLoc = "header"     // Parameter is placed in the HTTP header
+	Query      WireLoc = "query"      // Parameter is placed in the query string
+	Body       WireLoc = "body"       // Parameter is placed in the body
+	Cookie     WireLoc = "cookie"     // Parameter is placed in cookies
+	HTTPStatus WireLoc = "httpstatus" // Parameter represents the HTTP status code
 )
 
 var (
@@ -46,6 +47,10 @@ var (
 	CookieTag = tagDescription{
 		location:        Cookie,
 		omitEmptyOption: "omitempty",
+		overrideDefault: true,
+	}
+	HTTPStatusTag = tagDescription{
+		location:        HTTPStatus,
 		overrideDefault: true,
 	}
 )
@@ -125,10 +130,16 @@ type ResponseEncoding struct {
 	// Contains metadata about how to marshal an HTTP parameter
 	HeaderParameters []*ParameterEncoding `json:"header_parameters"`
 	BodyParameters   []*ParameterEncoding `json:"body_parameters"`
+	// HTTPStatusParameter contains encoding info for the HTTP status field, if any
+	HTTPStatusParameter *ParameterEncoding `json:"http_status_parameter,omitempty"`
 }
 
 func (r *ResponseEncoding) AllParameters() []*ParameterEncoding {
-	return append(r.HeaderParameters, r.BodyParameters...)
+	params := append(r.HeaderParameters, r.BodyParameters...)
+	if r.HTTPStatusParameter != nil {
+		params = append(params, r.HTTPStatusParameter)
+	}
+	return params
 }
 
 // RequestEncoding expresses how a request should be encoded for an explicit set of HTTPMethods
@@ -180,6 +191,17 @@ func DescribeResponse(errs *perr.List, responseSchema schema.Type) *ResponseEnco
 		return &ResponseEncoding{}
 	}
 
+	// Extract HTTP status parameter from fields and check for multiple status fields
+	var httpStatusParameter *ParameterEncoding
+	if len(fields[HTTPStatus]) > 0 {
+		switch len(fields[HTTPStatus]) {
+		case 1:
+			httpStatusParameter = fields[HTTPStatus][0]
+		default:
+			errs.Add(errMultipleHTTPStatusFields.AtGoNode(responseStruct.ASTExpr()))
+		}
+	}
+
 	// Check for reserved header prefixes
 	for _, field := range fields[Header] {
 		if strings.HasPrefix(strings.ToLower(field.WireName), "x-encore-") {
@@ -187,7 +209,7 @@ func DescribeResponse(errs *perr.List, responseSchema schema.Type) *ResponseEnco
 		}
 	}
 
-	if keys := keyDiff(fields, Header, Body); len(keys) > 0 {
+	if keys := keyDiff(fields, Header, Body, HTTPStatus); len(keys) > 0 {
 		err := errResponseTypeMustOnlyBeBodyOrHeaders.AtGoNode(responseSchema.ASTExpr())
 
 		for _, k := range keys {
@@ -200,8 +222,9 @@ func DescribeResponse(errs *perr.List, responseSchema schema.Type) *ResponseEnco
 	}
 
 	return &ResponseEncoding{
-		BodyParameters:   fields[Body],
-		HeaderParameters: fields[Header],
+		BodyParameters:      fields[Body],
+		HeaderParameters:    fields[Header],
+		HTTPStatusParameter: httpStatusParameter,
 	}
 }
 
@@ -273,7 +296,7 @@ func DescribeRequest(errs *perr.List, requestAST schema.Param, requestSchema sch
 				errs.Add(errReservedHeaderPrefix.AtGoNode(field.Type.ASTExpr()))
 			}
 
-			if _, _, ok := schemautil.IsBuiltinOrList(field.Type); !ok {
+			if !schemautil.IsValidHeaderType(field.Type) {
 				errs.Add(
 					errInvalidHeaderType(field.Type.String()).
 						AtGoNode(field.Type.ASTExpr(), errors.AsError("unsupported type")).
@@ -284,7 +307,7 @@ func DescribeRequest(errs *perr.List, requestAST schema.Param, requestSchema sch
 
 		// Check for invalid datatype in query parameters
 		for _, field := range fields[Query] {
-			if _, _, ok := schemautil.IsBuiltinOrList(field.Type); !ok {
+			if !schemautil.IsValidQueryType(field.Type) {
 				err := errInvalidQueryStringType(field.Type.String()).
 					AtGoNode(field.Type.ASTExpr(), errors.AsError("unsupported type")).
 					AtGoNode(requestAST.AST, errors.AsHelp("used here"))
@@ -418,9 +441,14 @@ func formatName(location WireLoc, name string) string {
 }
 
 // IgnoreField returns true if the field name is "-" is any of the valid request or response tags
+// or if the field is marked with encore:"httpstatus" (which shouldn't appear in client types)
 func IgnoreField(field schema.StructField) bool {
 	for _, tag := range field.Tag.Tags() {
 		if _, found := requestTags[tag.Key]; found && tag.Name == "-" {
+			return true
+		}
+		// Skip fields with encore:"httpstatus" tag - they're for internal HTTP status handling only
+		if tag.Key == "encore" && tag.Name == "httpstatus" {
 			return true
 		}
 	}
@@ -452,6 +480,23 @@ func describeParam(errs *perr.List, encodingHints *encodingHints, field schema.S
 	location := encodingHints.defaultLocation
 	var usedOverrideTag string
 	for _, tag := range field.Tag.Tags() {
+		// Handle fields with encore:"httpstatus" tag
+		if tag.Key == "encore" && tag.Name == "httpstatus" {
+			if !isValidHTTPStatusType(field.Type) {
+				errs.Add(errHTTPStatusFieldMustBeInt.AtGoNode(field.AST))
+				return nil, false
+			}
+
+			return &ParameterEncoding{
+				SrcName:   srcName,
+				WireName:  "httpstatus",
+				Location:  HTTPStatus,
+				OmitEmpty: false,
+				Doc:       field.Doc,
+				Type:      field.Type,
+			}, true
+		}
+
 		tagHint, ok := encodingHints.tags[tag.Key]
 		if !ok {
 			continue
@@ -491,4 +536,21 @@ func describeParam(errs *perr.List, encodingHints *encodingHints, field schema.S
 
 	param.Location = location
 	return &param, true
+}
+
+// isValidHTTPStatusType returns true if the given type is valid for HTTP status fields.
+// Valid types are integer types that can hold a http status code
+func isValidHTTPStatusType(typ schema.Type) bool {
+	builtin, ok := typ.(schema.BuiltinType)
+	if !ok {
+		return false
+	}
+
+	switch builtin.Kind {
+	case schema.Int, schema.Int16, schema.Int32, schema.Int64,
+		schema.Uint, schema.Uint16, schema.Uint32, schema.Uint64:
+		return true
+	default:
+		return false
+	}
 }

@@ -96,12 +96,22 @@ func (mgr *Manager) ExecScript(ctx context.Context, p ExecScriptParams) (err err
 		UseLocalJSRuntime: version.Channel == version.DevBuild,
 	}
 
+	prepareResult, err := bld.Prepare(ctx, builder.PrepareParams{
+		Build:      buildInfo,
+		App:        p.App,
+		WorkingDir: p.WorkingDir,
+	})
+	if err != nil {
+		tracker.Fail(parseOp, errors.New("prepare error"))
+		return err
+	}
 	parse, err := bld.Parse(ctx, builder.ParseParams{
 		Build:       buildInfo,
 		App:         p.App,
 		Experiments: expSet,
 		WorkingDir:  p.WorkingDir,
 		ParseTests:  false,
+		Prepare:     prepareResult,
 	})
 	if err != nil {
 		// Don't use the error itself in tracker.Fail, as it will lead to duplicate error output.
@@ -185,21 +195,31 @@ func (mgr *Manager) ExecScript(ctx context.Context, p ExecScriptParams) (err err
 		return err
 	}
 
+	tempDir, err := os.MkdirTemp("", "encore-exec")
+	if err != nil {
+		return errors.Wrap(err, "couldn't create temp dir")
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
 	authKey := genAuthKey()
 	configGen := &RuntimeConfigGenerator{
-		app:            p.App,
-		infraManager:   rm,
-		md:             parse.Meta,
-		AppID:          option.Some(GenID()),
-		EnvID:          option.Some(GenID()),
-		TraceEndpoint:  option.Some(fmt.Sprintf("http://localhost:%d/trace", mgr.RuntimePort)),
-		AuthKey:        authKey,
-		Gateways:       gateways,
-		DefinedSecrets: secrets,
-		SvcConfigs:     cfg.Configs,
-		IncludeMetaEnv: bld.NeedsMeta(),
+		app:               p.App,
+		infraManager:      rm,
+		md:                parse.Meta,
+		AppID:             option.Some(GenID()),
+		EnvID:             option.Some(GenID()),
+		TraceEndpoint:     option.Some(fmt.Sprintf("http://localhost:%d/trace", mgr.RuntimePort)),
+		AuthKey:           authKey,
+		Gateways:          gateways,
+		DefinedSecrets:    secrets,
+		SvcConfigs:        cfg.Configs,
+		IncludeMeta:       bld.NeedsMeta(),
+		MetaPath:          option.Some(filepath.Join(tempDir, "meta.pb")),
+		RuntimeConfigPath: option.Some(filepath.Join(tempDir, "runtime_config.json")),
 	}
-	procConf, err := configGen.AllInOneProc()
+	procConf, err := configGen.AllInOneProc(bld.UseNewRuntimeConfig())
 	if err != nil {
 		return err
 	}

@@ -221,7 +221,7 @@ func (ts *typescript) writeService(svc *meta.Service, p clientgentypes.ServiceSe
 				(rpc.ResponseSchema == nil && rpc.RequestSchema == nil && !hasPathParams(rpc)) {
 				continue
 			}
-			path := fmt.Sprintf("~backend/%s/%s", rpc.Loc.PkgName, strings.TrimSuffix(rpc.Loc.Filename, filepath.Ext(rpc.Loc.Filename)))
+			path := fmt.Sprintf("~backend/%s/%s", rpc.Loc.PkgPath, strings.TrimSuffix(rpc.Loc.Filename, filepath.Ext(rpc.Loc.Filename)))
 			importsByPath[path] = append(importsByPath[path], fmt.Sprintf("%s as %s", rpc.Name, rpcImportName(rpc)))
 		}
 		if len(importsByPath) > 0 {
@@ -858,8 +858,11 @@ func (ts *typescript) writeDeclDef(ns string, decl *schema.Decl) {
 	} else {
 		fmt.Fprintf(ts, "    export type %s%s = ", ts.typeName(decl.Name), typeParams.String())
 	}
+
+	prev := ts.currDecl
 	ts.currDecl = decl
 	ts.writeTyp(ns, decl.Type, 1)
+	ts.currDecl = prev
 	ts.WriteString("\n")
 }
 
@@ -1637,6 +1640,13 @@ func (ts *typescript) writeDecl(ns string, decl *schema.Decl) {
 	ts.WriteString(ts.typeName(decl.Name))
 }
 
+func (ts *typescript) writeDecl2(buf *bytes.Buffer, ns string, decl *schema.Decl) {
+	if decl.Loc.PkgName != ns {
+		buf.WriteString(ts.typeName(decl.Loc.PkgName) + ".")
+	}
+	buf.WriteString(ts.typeName(decl.Name))
+}
+
 func (ts *typescript) builtinType(typ schema.Builtin) string {
 	switch typ {
 	case schema.Builtin_ANY:
@@ -1659,6 +1669,8 @@ func (ts *typescript) builtinType(typ schema.Builtin) string {
 	case schema.Builtin_UUID:
 		return "string"
 	case schema.Builtin_USER_ID:
+		return "string"
+	case schema.Builtin_DECIMAL:
 		return "string"
 	default:
 		ts.errorf("unknown builtin type %v", typ)
@@ -1722,82 +1734,85 @@ func (ts *typescript) convertStringToBuiltin(typ schema.Builtin, val string) str
 }
 
 func (ts *typescript) writeTyp(ns string, typ *schema.Type, numIndents int) {
-	switch typ := typ.Typ.(type) {
+	var buf strings.Builder
+	ts.renderTyp(ts.Buffer, ns, typ, numIndents)
+	ts.WriteString(buf.String())
+}
+
+func (ts *typescript) renderTyp(buf *bytes.Buffer, ns string, tt *schema.Type, numIndents int) {
+	switch typ := tt.Typ.(type) {
 	case *schema.Type_Named:
 		decl := ts.md.Decls[typ.Named.Id]
-		ts.writeDecl(ns, decl)
+		ts.writeDecl2(buf, ns, decl)
 
 		// Write the type arguments
 		if len(typ.Named.TypeArguments) > 0 {
-			ts.WriteRune('<')
+			buf.WriteRune('<')
 
 			for i, typeArg := range typ.Named.TypeArguments {
 				if i > 0 {
-					ts.WriteString(", ")
+					buf.WriteString(", ")
 				}
 
-				ts.writeTyp(ns, typeArg, 0)
+				ts.renderTyp(buf, ns, typeArg, 0)
 			}
 
-			ts.WriteRune('>')
+			buf.WriteRune('>')
 		}
 	case *schema.Type_List:
-		elem := typ.List.Elem
-		union, isUnion := elem.Typ.(*schema.Type_Union)
-		paren := isUnion && len(union.Union.Types) > 1
+		// Determine if we need parens by counting the number of union elements.
+		var unionBuf bytes.Buffer
+		numCases := ts.renderUnionTypes(&unionBuf, ns, typ.List.Elem, numIndents)
+		paren := numCases > 1
 
 		if paren {
-			ts.WriteString("(")
-		}
-		ts.writeTyp(ns, elem, numIndents)
-		if paren {
-			ts.WriteString(")")
+			buf.WriteString("(")
 		}
 
-		ts.WriteString("[]")
+		buf.Write(unionBuf.Bytes())
+
+		if paren {
+			buf.WriteString(")")
+		}
+
+		buf.WriteString("[]")
 
 	case *schema.Type_Map:
-		ts.WriteString("{ [key: ")
-		ts.writeTyp(ns, typ.Map.Key, numIndents)
-		ts.WriteString("]: ")
-		ts.writeTyp(ns, typ.Map.Value, numIndents)
-		ts.WriteString(" }")
+		buf.WriteString("{ [key: ")
+		ts.renderTyp(buf, ns, typ.Map.Key, numIndents)
+		buf.WriteString("]: ")
+		ts.renderTyp(buf, ns, typ.Map.Value, numIndents)
+		buf.WriteString(" }")
 
 	case *schema.Type_Builtin:
-		ts.WriteString(ts.builtinType(typ.Builtin))
-
-	case *schema.Type_Pointer:
-		// FIXME(ENC-827): Handle pointers in TypeScript in a way which more technically correct without
-		// making the end user experience of using a generated client worse.
-		ts.writeTyp(ns, typ.Pointer.Base, numIndents)
+		buf.WriteString(ts.builtinType(typ.Builtin))
 
 	case *schema.Type_Literal:
 		switch lit := typ.Literal.Value.(type) {
 		case *schema.Literal_Str:
-			ts.WriteString(ts.Quote(lit.Str))
+			buf.WriteString(ts.Quote(lit.Str))
 		case *schema.Literal_Int:
-			ts.WriteString(strconv.FormatInt(lit.Int, 10))
+			buf.WriteString(strconv.FormatInt(lit.Int, 10))
 		case *schema.Literal_Float:
-			ts.WriteString(strconv.FormatFloat(lit.Float, 'f', -1, 64))
+			buf.WriteString(strconv.FormatFloat(lit.Float, 'f', -1, 64))
 		case *schema.Literal_Boolean:
-			ts.WriteString(strconv.FormatBool(lit.Boolean))
+			buf.WriteString(strconv.FormatBool(lit.Boolean))
 		case *schema.Literal_Null:
-			ts.WriteString("null")
+			buf.WriteString("null")
 		default:
 			ts.errorf("unknown literal type %T", lit)
 		}
 
+	case *schema.Type_Pointer:
+		ts.renderUnionTypes(buf, ns, tt, numIndents)
+	case *schema.Type_Option:
+		ts.renderUnionTypes(buf, ns, tt, numIndents)
 	case *schema.Type_Union:
-		for i, typ := range typ.Union.Types {
-			if i > 0 {
-				ts.WriteString(" | ")
-			}
-			ts.writeTyp(ns, typ, numIndents)
-		}
+		ts.renderUnionTypes(buf, ns, tt, numIndents)
 
 	case *schema.Type_Struct:
 		indent := func() {
-			ts.WriteString(strings.Repeat("    ", numIndents+1))
+			buf.WriteString(strings.Repeat("    ", numIndents+1))
 		}
 
 		// Filter the fields to print based on struct tags.
@@ -1813,53 +1828,98 @@ func (ts *typescript) writeTyp(ns string, typ *schema.Type, numIndents int) {
 			fields = append(fields, f)
 		}
 
-		ts.WriteString("{\n")
+		buf.WriteString("{\n")
 		for i, field := range fields {
 			if field.Doc != "" {
 				scanner := bufio.NewScanner(strings.NewReader(field.Doc))
 				indent()
-				ts.WriteString("/**\n")
+				buf.WriteString("/**\n")
 				for scanner.Scan() {
 					indent()
-					ts.WriteString(" * ")
-					ts.WriteString(scanner.Text())
-					ts.WriteByte('\n')
+					buf.WriteString(" * ")
+					buf.WriteString(scanner.Text())
+					buf.WriteByte('\n')
 				}
 				indent()
-				ts.WriteString(" */\n")
+				buf.WriteString(" */\n")
 			}
 
 			indent()
-			ts.WriteString(ts.QuoteIfRequired(ts.fieldNameInStruct(field)))
+			buf.WriteString(ts.QuoteIfRequired(ts.fieldNameInStruct(field)))
 
 			if field.Optional || ts.isRecursive(field.Typ) {
-				ts.WriteString("?")
+				buf.WriteString("?")
 			}
-			ts.WriteString(": ")
-			ts.writeTyp(ns, field.Typ, numIndents+1)
-			ts.WriteString("\n")
+			buf.WriteString(": ")
+			ts.renderTyp(buf, ns, field.Typ, numIndents+1)
+			buf.WriteString("\n")
 
 			// Add another empty line if we have a doc comment
 			// and this was not the last field.
 			if field.Doc != "" && i < len(fields)-1 {
-				ts.WriteByte('\n')
+				buf.WriteByte('\n')
 			}
 		}
-		ts.WriteString(strings.Repeat("    ", numIndents))
-		ts.WriteByte('}')
+		buf.WriteString(strings.Repeat("    ", numIndents))
+		buf.WriteByte('}')
 
 	case *schema.Type_TypeParameter:
 		decl := ts.md.Decls[typ.TypeParameter.DeclId]
 		typeParam := decl.TypeParams[typ.TypeParameter.ParamIdx]
 
-		ts.WriteString(typeParam.Name)
+		buf.WriteString(typeParam.Name)
 
 	case *schema.Type_Config:
 		// Config type is transparent
-		ts.writeTyp(ns, typ.Config.Elem, numIndents)
+		ts.renderTyp(buf, ns, typ.Config.Elem, numIndents)
 
 	default:
 		ts.errorf("unknown type %+v", reflect.TypeOf(typ))
+	}
+}
+
+func (ts *typescript) renderUnionTypes(buf *bytes.Buffer, ns string, typ *schema.Type, numIndents int) (renderedCases int) {
+	cases := ts.getUnionCases(typ)
+	seenCases := make(map[string]bool)
+	for i, caseType := range cases {
+		var caseBuf bytes.Buffer
+		ts.renderTyp(&caseBuf, ns, caseType, numIndents)
+		caseStr := caseBuf.String()
+		if seenCases[caseStr] {
+			continue
+		}
+		seenCases[caseStr] = true
+		renderedCases++
+
+		if i > 0 {
+			buf.WriteString(" | ")
+		}
+		buf.WriteString(caseStr)
+	}
+	return renderedCases
+}
+
+func (ts *typescript) getUnionCases(typ *schema.Type) []*schema.Type {
+	null := &schema.Type{
+		Typ: &schema.Type_Literal{
+			Literal: &schema.Literal{
+				Value: &schema.Literal_Null{Null: true},
+			},
+		},
+	}
+
+	switch tt := typ.Typ.(type) {
+	case *schema.Type_Union:
+		return slices.Clone(tt.Union.Types)
+	case *schema.Type_Option:
+		return append(ts.getUnionCases(tt.Option.Value), null)
+	case *schema.Type_Pointer:
+		// We do not treat pointers as nullable, as we have the Option type for that.
+		// This makes a lot of APIs nicer to use.
+		return ts.getUnionCases(tt.Pointer.Base)
+
+	default:
+		return []*schema.Type{typ}
 	}
 }
 
@@ -1979,6 +2039,10 @@ func (ts *typescript) fieldNameInStruct(field *schema.Field) string {
 }
 
 func (ts *typescript) isRecursive(typ *schema.Type) bool {
+	if ts.currDecl == nil {
+		return false
+	}
+
 	// Treat recursively seen types as if they are optional
 	recursiveType := false
 	if n := typ.GetNamed(); n != nil {

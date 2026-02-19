@@ -10,6 +10,7 @@ rttrace = []
 [dependencies]
 pingora = { version = "0.4", features = ["lb", "openssl"] }
 anyhow = "1.0.76"
+async-trait = "0.1"
 base64 = "0.21.5"
 gjson = "0.8.1"
 prost = "0.12.3"
@@ -23,6 +24,7 @@ xid = "1.0.3"
 log = { version = "0.4.20", features = ["kv_unstable", "kv_unstable_serde"] }
 bytes = { version = "1.5.0", features = [] }
 postgres-protocol = "0.6.8"
+pgvector = { version = "0.4", features = ["postgres", "serde"] }
 tokio-postgres = { version = "0.7.13", features = [
     "array-impls",
     "with-serde_json-1",
@@ -33,7 +35,9 @@ tokio-postgres = { version = "0.7.13", features = [
 ] }
 cidr = "0.3.1"
 tokio-util = "0.7.10"
-tokio-tungstenite = "0.21.0"
+tokio-tungstenite = { version = "0.21.0", features = [
+    "rustls-tls-native-roots",
+] }
 futures-util = "0.3.31"
 rand = "0.8.5"
 env_logger = "0.10.1"
@@ -118,6 +122,21 @@ aws-credential-types = "1.2.1"
 regex = "1.11.1"
 email_address = "0.2.9"
 cookie = "0.18.1"
+malachite = "0.6.1"
+byteorder = "1.5.0"
+metrics = "0.24.2"
+dashmap = "6.1.0"
+google-cloud-monitoring-v3 = "1.0.0"
+google-cloud-api = "1.0.0"
+google-cloud-wkt = "1.0.0"
+sysinfo = "0.37.2"
+aws-sdk-cloudwatch = { version = "1.94.0", default-features = false, features = [
+    "behavior-version-latest",
+    "rt-tokio",
+    "rustls",
+] }
+datadog-api-client = "0.20.0"
+snap = "1.1.1"
 
 [build-dependencies]
 prost-build = "0.12.3"
@@ -126,3 +145,4 @@ prost-build = "0.12.3"
 assert_matches = "1.5.0"
 insta = { version = "1.38.0", features = ["yaml"] }
 quickcheck = "1.0.3"
+proptest = "1.7.0"

@@ -1,3 +1,5 @@
+//go:build e2e
+
 package tests
 
 import (
@@ -121,7 +123,6 @@ func doTestEndToEndWithApp(t *testing.T, env []string) {
 		})
 
 		// Send a pubsub
-
 		c.Run("send a pubsub", func(c *qt.C) {
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", "/echo.Publish", nil)
@@ -326,6 +327,14 @@ func doTestEndToEndWithApp(t *testing.T, env []string) {
 			run.ServeHTTP(w, req)
 			c.Assert(w.Code, qt.Equals, 200)
 			c.Assert(w.Body.Bytes(), qt.JSONEquals, Data[string, string]{"woodpecker", "kingfisher"})
+		})
+
+		// Call endpoint with custom http status in response
+		c.Run("custom http status response", func(c *qt.C) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("GET", "/echo.CustomHTTPStatus", nil)
+			run.ServeHTTP(w, req)
+			c.Assert(w.Code, qt.Equals, 201)
 		})
 
 		// Call the env endpoint and make sure we get our env variables back
@@ -581,7 +590,8 @@ func TestProcClosedOnCtxCancel(t *testing.T) {
 		ResourceManager: rm,
 		ListenAddr:      "127.0.0.1:34212",
 		SvcProxy:        svcProxy,
-		Builder:         v2builder.BuilderImpl{},
+		Builder:         v2builder.New(),
+		Params:          &StartParams{},
 	}
 
 	parse, build, _ := testBuild(c, appRoot, append(os.Environ(), "ENCORE_EXPERIMENT=v2"))

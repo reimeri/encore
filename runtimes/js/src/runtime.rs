@@ -1,33 +1,60 @@
 use crate::api::{new_api_handler, APIRoute, Request};
 use crate::gateway::{Gateway, GatewayConfig};
 use crate::log::Logger;
+use crate::napi_util::EnvMap;
 use crate::pubsub::{PubSubSubscription, PubSubSubscriptionConfig, PubSubTopic};
 use crate::pvalue::{parse_pvalues, transform_pvalues_request, PVals};
 use crate::secret::Secret;
 use crate::sqldb::SQLDatabase;
-use crate::{meta, objects, websocket_api};
+use crate::{meta, objects, runtime_config, websocket_api};
 use encore_runtime_core::api::{AuthOpts, PValues};
 use encore_runtime_core::pubsub::SubName;
 use encore_runtime_core::{api, EncoreName, EndpointName};
-use napi::{bindgen_prelude::*, JsObject};
+use napi::Ref;
+use napi::{bindgen_prelude::*, JsFunction, JsObject};
 use napi::{Error, JsUnknown, Status};
 use napi_derive::napi;
 use std::future::Future;
+use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 use std::thread;
 
 // TODO: remove storing of result after `get_or_try_init` is stabilized
 static RUNTIME: OnceLock<napi::Result<Arc<encore_runtime_core::Runtime>>> = OnceLock::new();
 
+// Type constructors registered from javascript so we can create those type from rust
+static TYPE_CONSTRUCTORS: EnvMap<Arc<TypeConstructorRefs>> = EnvMap::new();
+
+struct TypeConstructorRefs {
+    decimal: Ref<()>,
+}
+
 #[napi]
 pub struct Runtime {
     pub(crate) runtime: Arc<encore_runtime_core::Runtime>,
 }
 
+#[napi]
+impl Runtime {
+    pub fn create_decimal(env: Env, val: &str) -> napi::Result<JsUnknown> {
+        let constructors = TYPE_CONSTRUCTORS.get(env).ok_or_else(|| {
+            Error::new(Status::GenericFailure, "Type constructors not initialized")
+        })?;
+
+        let constructor: JsFunction = env.get_reference_value(&constructors.decimal)?;
+        constructor.call(None, &[env.create_string(val)?])
+    }
+}
+
 #[napi(object)]
-#[derive(Default)]
+pub struct RuntimeTypeConstructors {
+    pub decimal: JsFunction,
+}
+
+#[napi(object)]
 pub struct RuntimeOptions {
     pub test_mode: Option<bool>,
+    pub type_constructors: RuntimeTypeConstructors,
 }
 
 fn init_runtime(test_mode: bool) -> napi::Result<encore_runtime_core::Runtime> {
@@ -50,11 +77,18 @@ fn init_runtime(test_mode: bool) -> napi::Result<encore_runtime_core::Runtime> {
 #[napi]
 impl Runtime {
     #[napi(constructor)]
-    pub fn new(options: Option<RuntimeOptions>) -> napi::Result<Self> {
-        let options = options.unwrap_or_default();
+    pub fn new(env: Env, options: RuntimeOptions) -> napi::Result<Self> {
         let test_mode = options
             .test_mode
             .unwrap_or(std::env::var("NODE_ENV").is_ok_and(|val| val == "test"));
+
+        TYPE_CONSTRUCTORS.get_or_init(env, || {
+            Arc::new(TypeConstructorRefs {
+                decimal: env
+                    .create_reference(options.type_constructors.decimal)
+                    .expect("couldn't create reference to Decimal"),
+            })
+        });
 
         if test_mode {
             // Don't reuse the runtime in tests, as vitest and other test frameworks
@@ -324,6 +358,12 @@ impl Runtime {
         md.clone().into()
     }
 
+    #[napi]
+    pub fn runtime_config(&self) -> runtime_config::RuntimeConfig {
+        let rt = self.runtime.runtime_config();
+        rt.clone().into()
+    }
+
     /// Reports the total number of worker threads,
     /// including the main thread.
     #[napi]
@@ -338,6 +378,36 @@ impl Runtime {
             }
             None => 1u32,
         }
+    }
+
+    /// Register the shared metrics buffer (called once by main thread)
+    /// All worker threads will use the same registry
+    #[napi]
+    pub fn create_metrics_registry(&self, env: Env, buffer: JsObject) -> napi::Result<()> {
+        let inner = crate::metrics::MetricsRegistry::get_or_init_global(env, buffer)?;
+
+        // Create a registry wrapper to pass to the collector
+        let registry = crate::metrics::MetricsRegistry { inner };
+
+        // Register the JS metrics collector with the core runtime (idempotent)
+        let collector = Arc::new(crate::metrics::JsMetricsCollector::new(&registry));
+        self.runtime
+            .metrics()
+            .registry()
+            .register_collector(collector);
+
+        Ok(())
+    }
+
+    /// Get the shared metrics registry (all worker threads use this)
+    #[napi]
+    pub fn get_metrics_registry(&self) -> napi::Result<crate::metrics::MetricsRegistry> {
+        crate::metrics::MetricsRegistry::get_global().ok_or_else(|| {
+            napi::Error::new(
+                napi::Status::GenericFailure,
+                "Metrics registry not initialized",
+            )
+        })
     }
 }
 
@@ -385,6 +455,62 @@ impl From<api::Error> for APICallError {
             code: value.code.to_string(),
             message: value.message,
             details: value.details.map(|d| PVals(*d)),
+        }
+    }
+}
+
+#[napi]
+pub struct Decimal {
+    inner: encore_runtime_core::api::Decimal,
+}
+
+#[napi]
+impl Decimal {
+    #[napi(constructor)]
+    pub fn new(value: String) -> napi::Result<Self> {
+        match encore_runtime_core::api::Decimal::from_str(&value) {
+            Ok(decimal) => Ok(Self { inner: decimal }),
+            Err(err) => Err(Error::new(
+                Status::InvalidArg,
+                format!("Invalid decimal format: '{}'", err),
+            )),
+        }
+    }
+
+    #[napi(js_name = "toString")]
+    pub fn js_to_string(&self) -> String {
+        self.inner.to_string()
+    }
+
+    #[napi]
+    pub fn add(&self, other: &Decimal) -> Decimal {
+        use std::ops::Add;
+        Decimal {
+            inner: self.inner.add(&other.inner),
+        }
+    }
+
+    #[napi]
+    pub fn sub(&self, other: &Decimal) -> Decimal {
+        use std::ops::Sub;
+        Decimal {
+            inner: self.inner.sub(&other.inner),
+        }
+    }
+
+    #[napi]
+    pub fn mul(&self, other: &Decimal) -> Decimal {
+        use std::ops::Mul;
+        Decimal {
+            inner: self.inner.mul(&other.inner),
+        }
+    }
+
+    #[napi]
+    pub fn div(&self, other: &Decimal) -> Decimal {
+        use std::ops::Div;
+        Decimal {
+            inner: self.inner.div(&other.inner),
         }
     }
 }

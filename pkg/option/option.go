@@ -1,10 +1,12 @@
 package option
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/cockroachdb/errors"
 	"github.com/google/go-cmp/cmp"
@@ -73,6 +75,15 @@ func FromPointer[T any](v *T) Option[T] {
 		return None[T]()
 	}
 	return Some[T](*v)
+}
+
+// FromErr returns an Option[string] where a nil error is considered None
+// and any other value is considered Some, with the error message as the value.
+func FromErr(err error) Option[string] {
+	if err == nil {
+		return None[string]()
+	}
+	return Some(err.Error())
 }
 
 // Some returns an Option with the given value and present set to true
@@ -181,4 +192,16 @@ func (o Option[T]) PtrOrNil() *T {
 		return &o.value
 	}
 	return nil
+}
+
+func ToNullString(o Option[string]) sql.NullString {
+	return sql.NullString{String: o.value, Valid: o.present}
+}
+
+func ToNullBool(o Option[bool]) sql.NullBool {
+	return sql.NullBool{Bool: o.value, Valid: o.present}
+}
+
+func ToNullTime(o Option[time.Time]) sql.NullTime {
+	return sql.NullTime{Time: o.value, Valid: o.present}
 }

@@ -5,17 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+
 	// "net/http"
 	// "net/http/httptest"
 	"os"
 	"reflect"
+
 	// "strings"
 	"time"
 
 	"encore.app/test"
 	"encore.dev/beta/errs"
 	"encore.dev/rlog"
+	"encore.dev/types/option"
 	"encore.dev/types/uuid"
+	"github.com/google/go-cmp/cmp"
 )
 
 var assertNumber = 0
@@ -92,35 +96,38 @@ func GeneratedWrappersEndToEndTest(ctx context.Context) (err error) {
 	r.Read(queryBytes)
 	r.Read(bodyBytes)
 	params := &test.MarshallerTest[int]{
-		HeaderBoolean: r.Float32() > 0.5,
-		HeaderInt:     r.Int(),
-		HeaderFloat:   r.Float64(),
-		HeaderString:  "header string",
-		HeaderBytes:   headerBytes,
-		HeaderTime:    time.Now().Truncate(time.Second),
-		HeaderJson:    json.RawMessage("{\"hello\":\"world\"}"),
-		HeaderUUID:    newUUID(),
-		HeaderUserID:  "432",
-		QueryBoolean:  r.Float32() > 0.5,
-		QueryInt:      r.Int(),
-		QueryFloat:    r.Float64(),
-		QueryString:   "query string",
-		QueryBytes:    headerBytes,
-		QueryTime:     time.Now().Add(time.Duration(rand.Intn(1024)) * time.Hour).Truncate(time.Second),
-		QueryJson:     json.RawMessage("true"),
-		QueryUUID:     newUUID(),
-		QueryUserID:   "9udfa",
-		QuerySlice:    []int{r.Int(), r.Int(), r.Int(), r.Int()},
-		BodyBoolean:   r.Float32() > 0.5,
-		BodyInt:       r.Int(),
-		BodyFloat:     r.Float64(),
-		BodyString:    "body string",
-		BodyBytes:     bodyBytes,
-		BodyTime:      time.Now().Add(time.Duration(rand.Intn(1024)) * time.Hour).Truncate(time.Second),
-		BodyJson:      json.RawMessage("null"),
-		BodyUUID:      newUUID(),
-		BodyUserID:    "✉️",
-		BodySlice:     []int{r.Int(), r.Int(), r.Int(), r.Int(), r.Int(), r.Int()},
+		HeaderBoolean:   r.Float32() > 0.5,
+		HeaderInt:       r.Int(),
+		HeaderFloat:     r.Float64(),
+		HeaderString:    "header string",
+		HeaderBytes:     headerBytes,
+		HeaderTime:      time.Now().Truncate(time.Second),
+		HeaderJson:      json.RawMessage("{\"hello\":\"world\"}"),
+		HeaderUUID:      newUUID(),
+		HeaderUserID:    "432",
+		HeaderOption:    option.Some("test"),
+		QueryBoolean:    r.Float32() > 0.5,
+		QueryInt:        r.Int(),
+		QueryFloat:      r.Float64(),
+		QueryString:     "query string",
+		QueryBytes:      headerBytes,
+		QueryTime:       time.Now().Add(time.Duration(rand.Intn(1024)) * time.Hour).Truncate(time.Second),
+		QueryJson:       json.RawMessage("true"),
+		QueryUUID:       newUUID(),
+		QueryUserID:     "9udfa",
+		QuerySlice:      []int{r.Int(), r.Int(), r.Int(), r.Int()},
+		BodyBoolean:     r.Float32() > 0.5,
+		BodyInt:         r.Int(),
+		BodyFloat:       r.Float64(),
+		BodyString:      "body string",
+		BodyBytes:       bodyBytes,
+		BodyTime:        time.Now().Add(time.Duration(rand.Intn(1024)) * time.Hour).Truncate(time.Second),
+		BodyJson:        json.RawMessage("null"),
+		BodyUUID:        newUUID(),
+		BodyUserID:      "✉️",
+		BodySlice:       []int{r.Int(), r.Int(), r.Int(), r.Int(), r.Int(), r.Int()},
+		BodyOption:      option.Some(r.Int()),
+		BodyOptionSlice: []option.Option[int]{option.Some(r.Int()), option.None[int](), option.Some(r.Int())},
 	}
 	mResp, err := test.MarshallerTestHandler(ctx, params)
 	assert(err, nil, "Expected no error from the marshaller test")
@@ -130,7 +137,10 @@ func GeneratedWrappersEndToEndTest(ctx context.Context) (err error) {
 	assert(err, nil, "unable to marshal response to JSON")
 	reqAsJSON, err := json.Marshal(params)
 	assert(err, nil, "unable to marshal response to JSON")
-	assert(respAsJSON, reqAsJSON, "Expected the same response from the marshaller test")
+	if diff := cmp.Diff(string(respAsJSON), string(reqAsJSON)); diff != "" {
+		assertNumber++
+		panic(fmt.Sprintf("Assertion Failure %d: %s", assertNumber, diff))
+	}
 
 	// Test the raw endpoint (Unsupported currently in service to service calls)
 	// {

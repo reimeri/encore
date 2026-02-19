@@ -32,9 +32,18 @@ var (
 	}
 	watch    bool
 	listen   string
-	port     uint
-	jsonLogs bool
-	browser  = cmdutil.Oneof{
+	logLevel = cmdutil.Oneof{
+		Value:     "",
+		Allowed:   []string{"trace", "debug", "info", "warn", "error"},
+		Flag:      "level",
+		FlagShort: "l",
+		Desc:      "Minimum log level to display",
+		TypeDesc:  "string",
+	}
+	port               uint
+	jsonLogs           bool
+	scrubSensitiveData bool
+	browser            = cmdutil.Oneof{
 		Value:     "auto",
 		Allowed:   []string{"auto", "never", "always"},
 		Flag:      "browser",
@@ -46,7 +55,7 @@ var (
 
 func init() {
 	runCmd := &cobra.Command{
-		Use:   "run [--debug] [--watch=true] [--port=4000] [--listen=<listen-addr>]",
+		Use:   "run [--debug] [--watch=true] [--level=TRACE] [--port=4000] [--listen=<listen-addr>]",
 		Short: "Runs your application",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -70,7 +79,9 @@ func init() {
 	runCmd.Flags().StringVarP(&nsName, "namespace", "n", "", "Namespace to use (defaults to active namespace)")
 	runCmd.Flags().BoolVar(&color, "color", isTerm, "Whether to display colorized output")
 	runCmd.Flags().BoolVar(&noColor, "no-color", false, "Equivalent to --color=false")
+	runCmd.Flags().BoolVar(&scrubSensitiveData, "redact", false, "Redact sensitive data in traces when running locally")
 	runCmd.Flags().MarkHidden("no-color")
+	logLevel.AddFlag(runCmd)
 	debug.AddFlag(runCmd)
 	browser.AddFlag(runCmd)
 }
@@ -115,15 +126,17 @@ func runApp(appRoot, wd string) {
 
 	daemon := setupDaemon(ctx)
 	stream, err := daemon.Run(ctx, &daemonpb.RunRequest{
-		AppRoot:    appRoot,
-		DebugMode:  debugMode,
-		Watch:      watch,
-		WorkingDir: wd,
-		ListenAddr: listenAddr,
-		Environ:    os.Environ(),
-		TraceFile:  root.TraceFile,
-		Namespace:  nonZeroPtr(nsName),
-		Browser:    browserMode,
+		AppRoot:            appRoot,
+		DebugMode:          debugMode,
+		Watch:              watch,
+		WorkingDir:         wd,
+		ListenAddr:         listenAddr,
+		Environ:            os.Environ(),
+		TraceFile:          root.TraceFile,
+		Namespace:          nonZeroPtr(nsName),
+		Browser:            browserMode,
+		LogLevel:           nonZeroPtr(logLevel.Value),
+		ScrubSensitiveData: scrubSensitiveData,
 	})
 	if err != nil {
 		fatal(err)

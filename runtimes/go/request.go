@@ -26,6 +26,14 @@ type APIDesc struct {
 
 	// Tags describes what tags are attached to the endpoint.
 	Tags Tags
+
+	// Exposed is true if the endpoint is exposed to the public internet.
+	// This is true for "public" and "auth" endpoints.
+	Exposed bool
+
+	// AuthRequired is true if the endpoint requires authentication to be called.
+	// This is true for "auth" endpoints.
+	AuthRequired bool
 }
 
 // Request provides metadata about how and why the currently running code was started.
@@ -182,7 +190,9 @@ func (mgr *Manager) CurrentRequest() *Request {
 			RequestType:  desc.RequestType,
 			ResponseType: desc.ResponseType,
 			Raw:          desc.Raw,
-			Tags:         data.Desc.Tags,
+			Tags:         desc.Tags,
+			Exposed:      desc.Exposed,
+			AuthRequired: desc.AuthRequired,
 		}
 
 		if data.FromEncorePlatform {
@@ -191,12 +201,12 @@ func (mgr *Manager) CurrentRequest() *Request {
 
 	case model.PubSubMessage:
 		result.Type = PubSubMessage
-		result.Service = req.MsgData.Service
+		result.Service = req.MsgData.Desc.Service
 		result.Payload = req.MsgData.DecodedPayload
 		result.Message = &MessageData{
-			Service:         req.MsgData.Service,
-			Topic:           req.MsgData.Topic,
-			Subscription:    req.MsgData.Subscription,
+			Service:         req.MsgData.Desc.Service,
+			Topic:           req.MsgData.Desc.Topic,
+			Subscription:    req.MsgData.Desc.Subscription,
 			ID:              req.MsgData.MessageID,
 			Published:       req.MsgData.Published,
 			DeliveryAttempt: req.MsgData.Attempt,

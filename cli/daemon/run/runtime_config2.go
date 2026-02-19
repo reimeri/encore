@@ -21,6 +21,7 @@ import (
 	"go4.org/syncutil"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"encore.dev/appruntime/exported/config"
 	encoreEnv "encr.dev/internal/env"
@@ -34,11 +35,13 @@ import (
 )
 
 const (
-	runtimeCfgEnvVar    = "ENCORE_RUNTIME_CONFIG"
-	appSecretsEnvVar    = "ENCORE_APP_SECRETS"
-	serviceCfgEnvPrefix = "ENCORE_CFG_"
-	listenEnvVar        = "ENCORE_LISTEN_ADDR"
-	metaEnvVar          = "ENCORE_APP_META"
+	runtimeCfgEnvVar     = "ENCORE_RUNTIME_CONFIG"
+	runtimeCfgPathEnvVar = "ENCORE_RUNTIME_CONFIG_PATH"
+	appSecretsEnvVar     = "ENCORE_APP_SECRETS"
+	serviceCfgEnvPrefix  = "ENCORE_CFG_"
+	listenEnvVar         = "ENCORE_LISTEN_ADDR"
+	metaEnvVar           = "ENCORE_APP_META"
+	metaPathEnvVar       = "ENCORE_APP_META_PATH"
 )
 
 type RuntimeConfigGenerator struct {
@@ -76,8 +79,17 @@ type RuntimeConfigGenerator struct {
 	Gateways      map[string]GatewayConfig
 	AuthKey       config.EncoreAuthKey
 
-	// Whether to include the metadata as an environment variable.
-	IncludeMetaEnv bool
+	// Whether to include the metadata.
+	IncludeMeta bool
+	// If set, write the metadata to the given path
+	// instead of including it as an environment variable.
+	MetaPath option.Option[string]
+	// If set, write the runtime config to the given path
+	// instead of including it as an environment variable.
+	RuntimeConfigPath option.Option[string]
+
+	// Minimum log level, if any.
+	LogLevel option.Option[string]
 
 	// The values of defined secrets.
 	DefinedSecrets map[string]string
@@ -96,7 +108,6 @@ type GatewayConfig struct {
 func (g *RuntimeConfigGenerator) initialize() error {
 	return g.initOnce.Do(func() error {
 		g.conf = rtconfgen.NewBuilder()
-
 		newRid := func() string { return "res_" + xid.New().String() }
 
 		if deployID, ok := g.DeployID.Get(); ok {
@@ -136,7 +147,12 @@ func (g *RuntimeConfigGenerator) initialize() error {
 				Provider: &runtimev1.TracingProvider_Encore{
 					Encore: &runtimev1.TracingProvider_EncoreTracingProvider{
 						TraceEndpoint: traceEndpoint,
-						SamplingRate:  &sampleRate,
+						SamplingConfig: []*runtimev1.TracingProvider_SamplingConfig{
+							{
+								Rate:  sampleRate,
+								Scope: &runtimev1.TracingProvider_SamplingConfig_Default{Default: &emptypb.Empty{}},
+							},
+						},
 					},
 				},
 			})
@@ -146,10 +162,16 @@ func (g *RuntimeConfigGenerator) initialize() error {
 		if err != nil {
 			return errors.Wrap(err, "failed to get app's build settings")
 		}
+
+		logLevel := appFile.LogLevel
+		if level, ok := g.LogLevel.Get(); ok {
+			logLevel = level
+		}
+
 		for _, svc := range g.md.Svcs {
 			cfg := &runtimev1.HostedService{
 				Name:      svc.Name,
-				LogConfig: ptrOrNil(appFile.LogLevel),
+				LogConfig: ptrOrNil(logLevel),
 			}
 
 			if appFile.Build.WorkerPooling {
@@ -231,22 +253,28 @@ func (g *RuntimeConfigGenerator) initialize() error {
 					return errors.Newf("unknown delivery guarantee %q", topic.DeliveryGuarantee)
 				}
 
+				// Ensure topic name is valid for NSQ
+				topicCloudName := ensureValidNSQName(topic.Name)
+
 				cluster.PubSubTopic(&runtimev1.PubSubTopic{
 					Rid:               topicRid,
 					EncoreName:        topic.Name,
-					CloudName:         topic.Name,
+					CloudName:         topicCloudName,
 					DeliveryGuarantee: deliveryGuarantee,
 					OrderingAttr:      ptrOrNil(topic.OrderingKey),
 					ProviderConfig:    nil,
 				})
 
 				for _, sub := range topic.Subscriptions {
+					// Ensure subscription name is valid for NSQ
+					subCloudName := ensureValidNSQName(sub.Name)
+
 					cluster.PubSubSubscription(&runtimev1.PubSubSubscription{
 						Rid:                    newRid(),
 						TopicEncoreName:        topic.Name,
 						SubscriptionEncoreName: sub.Name,
-						TopicCloudName:         topic.Name,
-						SubscriptionCloudName:  sub.Name,
+						TopicCloudName:         topicCloudName,
+						SubscriptionCloudName:  subCloudName,
 						PushOnly:               false,
 						ProviderConfig:         nil,
 					})
@@ -547,7 +575,7 @@ func (g *RuntimeConfigGenerator) ProcPerService(proxy *svcproxy.SvcProxy) (servi
 	return
 }
 
-func (g *RuntimeConfigGenerator) AllInOneProc() (*ProcConfig, error) {
+func (g *RuntimeConfigGenerator) AllInOneProc(useRuntimeConfigV2 bool) (*ProcConfig, error) {
 	if err := g.initialize(); err != nil {
 		return nil, err
 	}
@@ -576,12 +604,16 @@ func (g *RuntimeConfigGenerator) AllInOneProc() (*ProcConfig, error) {
 
 	configEnvs := g.encodeConfigs(fns.Map(g.md.Svcs, func(svc *meta.Service) string { return svc.Name })...)
 
+	extraEnv := configEnvs
+	if !useRuntimeConfigV2 {
+		secretsEnv := fmt.Sprintf("%s=%s", appSecretsEnvVar, encodeSecretsEnv(g.DefinedSecrets))
+		extraEnv = append([]string{secretsEnv}, configEnvs...)
+	}
+
 	return &ProcConfig{
 		Runtime:    option.Some(conf),
 		ListenAddr: listenAddr,
-		ExtraEnv: append([]string{
-			fmt.Sprintf("%s=%s", appSecretsEnvVar, encodeSecretsEnv(g.DefinedSecrets)),
-		}, configEnvs...),
+		ExtraEnv:   extraEnv,
 	}, nil
 }
 
@@ -687,46 +719,30 @@ func (g *RuntimeConfigGenerator) ForTests(newRuntimeConf bool) (envs []string, e
 		return nil, errors.Wrap(err, "failed to generate runtime config")
 	}
 
-	var runtimeCfgStr string
-	if newRuntimeConf {
-		runtimeCfgBytes, err := proto.Marshal(conf)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to marshal runtime config")
-		}
-		gzipped := gzipBytes(runtimeCfgBytes)
-		runtimeCfgStr = "gzip:" + base64.StdEncoding.EncodeToString(gzipped)
-	} else {
-		// We don't use secretEnvs because for local development we use
-		// plaintext secrets across the board.
-		var secretEnvs map[string][]byte = nil
-
-		runtimeCfg, err := rtconfgen.ToLegacy(conf, secretEnvs)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to generate runtime config")
-		}
-		runtimeCfgBytes, err := json.Marshal(runtimeCfg)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to marshal runtime config")
-		}
-		runtimeCfgStr = base64.RawURLEncoding.EncodeToString(runtimeCfgBytes)
+	// Write runtime config to file or env var
+	rtEnvs, err := g.writeRuntimeConfig(conf, newRuntimeConf)
+	if err != nil {
+		return nil, err
 	}
+	envs = append(envs, rtEnvs...)
 
-	envs = append(envs,
-		fmt.Sprintf("%s=%s", appSecretsEnvVar, encodeSecretsEnv(g.DefinedSecrets)),
-		fmt.Sprintf("%s=%s", runtimeCfgEnvVar, runtimeCfgStr),
-	)
+	// For legacy runtime, also include secrets
+	if !newRuntimeConf {
+		envs = append(envs,
+			fmt.Sprintf("%s=%s", appSecretsEnvVar, encodeSecretsEnv(g.DefinedSecrets)),
+		)
+	}
 
 	svcNames := fns.Map(g.md.Svcs, func(svc *meta.Service) string { return svc.Name })
 	envs = append(envs, g.encodeConfigs(svcNames...)...)
 
-	if g.IncludeMetaEnv {
-		metaBytes, err := proto.Marshal(g.md)
+	// Write metadata to file or env var
+	if g.IncludeMeta {
+		metaEnvs, err := g.writeMetadata()
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to marshal metadata")
+			return nil, err
 		}
-		gzipped := gzipBytes(metaBytes)
-		metaEnvStr := "gzip:" + base64.StdEncoding.EncodeToString(gzipped)
-		envs = append(envs, fmt.Sprintf("%s=%s", metaEnvVar, metaEnvStr))
+		envs = append(envs, metaEnvs...)
 	}
 
 	if runtimeLibPath := encoreEnv.EncoreRuntimeLib(); runtimeLibPath != "" {
@@ -750,15 +766,41 @@ func (g *RuntimeConfigGenerator) ProcEnvs(proc *ProcConfig, useRuntimeConfigV2 b
 	}, proc.ExtraEnv...)
 
 	if rt, ok := proc.Runtime.Get(); ok {
-		var runtimeCfgStr string
+		rtEnvs, err := g.writeRuntimeConfig(rt, useRuntimeConfigV2)
+		if err != nil {
+			return nil, err
+		}
+		env = append(env, rtEnvs...)
+	}
+
+	if g.IncludeMeta {
+		metaEnvs, err := g.writeMetadata()
+		if err != nil {
+			return nil, err
+		}
+		env = append(env, metaEnvs...)
+	}
+
+	if runtimeLibPath := encoreEnv.EncoreRuntimeLib(); runtimeLibPath != "" {
+		env = append(env, "ENCORE_RUNTIME_LIB="+runtimeLibPath)
+	}
+
+	return env, nil
+}
+
+// writeRuntimeConfig writes the runtime config to either a file (if RuntimeConfigPath is set)
+// or returns it as an environment variable string.
+func (g *RuntimeConfigGenerator) writeRuntimeConfig(rt *runtimev1.RuntimeConfig, useRuntimeConfigV2 bool) ([]string, error) {
+	if runtimeCfgPath, ok := g.RuntimeConfigPath.Get(); ok {
+		// Write to file: marshal the appropriate format directly
+		var data []byte
+		var err error
 
 		if useRuntimeConfigV2 {
-			runtimeCfgBytes, err := proto.Marshal(rt)
+			data, err = proto.Marshal(rt)
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to marshal runtime config")
 			}
-			gzipped := gzipBytes(runtimeCfgBytes)
-			runtimeCfgStr = "gzip:" + base64.StdEncoding.EncodeToString(gzipped)
 		} else {
 			// We don't use secretEnvs because for local development we use
 			// plaintext secrets across the board.
@@ -769,31 +811,66 @@ func (g *RuntimeConfigGenerator) ProcEnvs(proc *ProcConfig, useRuntimeConfigV2 b
 				return nil, errors.Wrap(err, "failed to generate runtime config")
 			}
 
-			runtimeCfgBytes, err := json.Marshal(runtimeCfg)
+			data, err = json.Marshal(runtimeCfg)
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to marshal runtime config")
 			}
-			runtimeCfgStr = base64.RawURLEncoding.EncodeToString(runtimeCfgBytes)
 		}
 
-		env = append(env, fmt.Sprintf("%s=%s", runtimeCfgEnvVar, runtimeCfgStr))
+		if err := os.WriteFile(runtimeCfgPath, data, 0644); err != nil {
+			return nil, errors.Wrap(err, "failed to write runtime config")
+		}
+		return []string{fmt.Sprintf("%s=%s", runtimeCfgPathEnvVar, runtimeCfgPath)}, nil
 	}
 
-	if g.IncludeMetaEnv {
-		metaBytes, err := proto.Marshal(g.md)
+	// Write to environment variable: marshal, optionally gzip, and encode
+	var runtimeCfgStr string
+
+	if useRuntimeConfigV2 {
+		runtimeCfgBytes, err := proto.Marshal(rt)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to marshal metadata")
+			return nil, errors.Wrap(err, "failed to marshal runtime config")
 		}
-		gzipped := gzipBytes(metaBytes)
-		metaEnvStr := "gzip:" + base64.StdEncoding.EncodeToString(gzipped)
-		env = append(env, fmt.Sprintf("%s=%s", metaEnvVar, metaEnvStr))
+		gzipped := gzipBytes(runtimeCfgBytes)
+		runtimeCfgStr = "gzip:" + base64.StdEncoding.EncodeToString(gzipped)
+	} else {
+		// We don't use secretEnvs because for local development we use
+		// plaintext secrets across the board.
+		var secretEnvs map[string][]byte = nil
+
+		runtimeCfg, err := rtconfgen.ToLegacy(rt, secretEnvs)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to generate runtime config")
+		}
+
+		runtimeCfgBytes, err := json.Marshal(runtimeCfg)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to marshal runtime config")
+		}
+		runtimeCfgStr = base64.RawURLEncoding.EncodeToString(runtimeCfgBytes)
 	}
 
-	if runtimeLibPath := encoreEnv.EncoreRuntimeLib(); runtimeLibPath != "" {
-		env = append(env, "ENCORE_RUNTIME_LIB="+runtimeLibPath)
+	return []string{fmt.Sprintf("%s=%s", runtimeCfgEnvVar, runtimeCfgStr)}, nil
+}
+
+// writeMetadata writes the metadata to either a file (if MetaPath is set)
+// or returns it as an environment variable string.
+func (g *RuntimeConfigGenerator) writeMetadata() ([]string, error) {
+	metaBytes, err := proto.Marshal(g.md)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal metadata")
 	}
 
-	return env, nil
+	if metaPath, ok := g.MetaPath.Get(); ok {
+		if err := os.WriteFile(metaPath, metaBytes, 0644); err != nil {
+			return nil, errors.Wrap(err, "failed to write metadata")
+		}
+		return []string{fmt.Sprintf("%s=%s", metaPathEnvVar, metaPath)}, nil
+	}
+
+	gzipped := gzipBytes(metaBytes)
+	metaEnvStr := "gzip:" + base64.StdEncoding.EncodeToString(gzipped)
+	return []string{fmt.Sprintf("%s=%s", metaEnvVar, metaEnvStr)}, nil
 }
 
 func (g *RuntimeConfigGenerator) MissingSecrets() []string {

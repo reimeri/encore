@@ -69,7 +69,21 @@ func (g *Generator) schemaType(typ *schema.Type) *openapi3.SchemaRef {
 			val := g.schemaType(f.Typ)
 
 			if vv := val.Value; vv != nil {
+				// Direct schema - can set title and description directly
 				vv.Title, vv.Description = splitDoc(f.Doc)
+			} else if val.Ref != "" && f.Doc != "" {
+				// Schema reference with field documentation - use allOf pattern to add description
+				// This is the recommended workaround for OpenAPI 3.0 to add descriptions to $ref
+				// See: https://github.com/OAI/OpenAPI-Specification/issues/2033
+				// OpenAPI 3.1 supports description alongside $ref directly, but we use a library that doesn't support 3.1 yet
+				title, description := splitDoc(f.Doc)
+				val = &openapi3.SchemaRef{
+					Value: &openapi3.Schema{
+						AllOf:       []*openapi3.SchemaRef{val},
+						Title:       title,
+						Description: description,
+					},
+				}
 			}
 			props[jsonName] = val
 		}
@@ -94,6 +108,9 @@ func (g *Generator) schemaType(typ *schema.Type) *openapi3.SchemaRef {
 
 	case *schema.Type_Pointer:
 		return g.schemaType(t.Pointer.Base)
+
+	case *schema.Type_Option:
+		return g.schemaType(t.Option.Value)
 
 	case *schema.Type_Literal:
 		switch tt := t.Literal.Value.(type) {
@@ -169,12 +186,13 @@ func (g *Generator) schemaType(typ *schema.Type) *openapi3.SchemaRef {
 		}
 
 		// Otherwise, we have to represent this as an anyOf schema.
-		schemas := make([]*openapi3.Schema, 0, len(t.Union.Types))
+		schemaRefs := make([]*openapi3.SchemaRef, 0, len(t.Union.Types))
 		for _, tt := range t.Union.Types {
-			schemas = append(schemas, g.schemaType(tt).Value)
+			schemaRefs = append(schemaRefs, g.schemaType(tt))
 		}
 
-		s := openapi3.NewAnyOfSchema(schemas...)
+		s := openapi3.NewSchema()
+		s.AnyOf = schemaRefs
 		s.Nullable = haveLiteralNull
 		return s.NewRef()
 
@@ -234,6 +252,8 @@ func (g *Generator) builtinSchemaType(t schema.Builtin) *openapi3.Schema {
 		return openapi3.NewObjectSchema()
 	case schema.Builtin_USER_ID:
 		return openapi3.NewStringSchema()
+	case schema.Builtin_DECIMAL:
+		return openapi3.NewStringSchema()
 	default:
 		doBailout(errors.Newf("unknown builtin type %v", t))
 		panic("unreachable")
@@ -270,7 +290,21 @@ func (g *Generator) namedSchemaType(typ *schema.Named) *openapi3.SchemaRef {
 			g.seenDecls[candidate] = typ.Id
 			g.spec.Components.Schemas[candidate] = nil
 
-			g.spec.Components.Schemas[candidate] = g.schemaType(concrete)
+			// Generate the schema and add the declaration's documentation
+			schemaRef := g.schemaType(concrete)
+			if schemaRef.Value != nil {
+				// Get the declaration to access its documentation
+				if decl := g.md.Decls[typ.Id]; decl != nil && decl.Doc != "" {
+					title, description := splitDoc(decl.Doc)
+					if schemaRef.Value.Title == "" {
+						schemaRef.Value.Title = title
+					}
+					if schemaRef.Value.Description == "" {
+						schemaRef.Value.Description = description
+					}
+				}
+			}
+			g.spec.Components.Schemas[candidate] = schemaRef
 		}
 
 		return &openapi3.SchemaRef{
@@ -298,6 +332,8 @@ func (g *Generator) typeToDefinitionName(typ *schema.Type) string {
 		return "Map_" + g.typeToDefinitionName(typ.Map.Key) + "_" + g.typeToDefinitionName(typ.Map.Value)
 	case *schema.Type_Pointer:
 		return g.typeToDefinitionName(typ.Pointer.Base)
+	case *schema.Type_Option:
+		return "Option_" + g.typeToDefinitionName(typ.Option.Value)
 	case *schema.Type_Config:
 		return g.typeToDefinitionName(typ.Config.Elem)
 	case *schema.Type_Builtin:
@@ -342,8 +378,24 @@ func (g *Generator) typeToDefinitionName(typ *schema.Type) string {
 			return "int"
 		case schema.Builtin_UINT:
 			return "uint"
+		case schema.Builtin_DECIMAL:
+			return "string"
 		default:
 			return ""
+		}
+
+	case *schema.Type_Literal:
+		switch typ.Literal.Value.(type) {
+		case *schema.Literal_Boolean:
+			return "bool"
+		case *schema.Literal_Str:
+			return "string"
+		case *schema.Literal_Null:
+			return "null"
+		case *schema.Literal_Int:
+			return "int"
+		case *schema.Literal_Float:
+			return "float64"
 		}
 	}
 

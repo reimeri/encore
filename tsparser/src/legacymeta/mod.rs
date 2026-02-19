@@ -2,17 +2,21 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 
+use convert_case::{Case, Casing};
 use swc_common::errors::HANDLER;
 
 use crate::encore::parser::meta::v1::{self, selector, Selector};
+use crate::encore::parser::schema::v1::Builtin;
 use crate::legacymeta::schema::{loc_from_range, SchemaBuilder};
 use crate::parser::parser::{ParseContext, ParseResult, Service};
 use crate::parser::resourceparser::bind::{Bind, BindKind};
 use crate::parser::resources::apis::{authhandler, gateway};
 use crate::parser::resources::infra::cron::CronJobSchedule;
+use crate::parser::resources::infra::metrics::MetricType;
+use crate::parser::resources::infra::pubsub_topic::TopicOperation;
 use crate::parser::resources::infra::{cron, objects, pubsub_subscription, pubsub_topic, sqldb};
 use crate::parser::resources::Resource;
-use crate::parser::types::validation;
+use crate::parser::types::{validation, Basic, FieldName, Literal, Type};
 use crate::parser::types::{Object, ObjectId};
 use crate::parser::usageparser::Usage;
 use crate::parser::{respath, FilePath, Range};
@@ -83,6 +87,7 @@ impl MetaBuilder<'_> {
                 rpcs: vec![],      // filled in later
                 databases: vec![], // filled in later
                 buckets: vec![],   // filled in later
+                metrics: vec![],   // filled in later
                 has_config: false, // TODO change when config is supported
 
                 // We no longer care about migrations in a service, so just set
@@ -157,10 +162,30 @@ impl MetaBuilder<'_> {
                                     )
                                 })
                                 .transpose()?;
+
+                            // Convert headers to protobuf format
+                            let headers = sa
+                                .headers
+                                .as_ref()
+                                .map(|h| {
+                                    h.iter()
+                                        .map(|(k, v)| {
+                                            (
+                                                k.clone(),
+                                                v1::rpc::static_assets::HeaderValues {
+                                                    values: v.clone(),
+                                                },
+                                            )
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
                             Ok(v1::rpc::StaticAssets {
                                 dir_rel_path,
                                 not_found_rel_path,
                                 not_found_status: sa.not_found_status,
+                                headers,
                             })
                         })
                         .transpose()?;
@@ -190,7 +215,7 @@ impl MetaBuilder<'_> {
                         path: Some(ep.encoding.path.to_meta()),
                         http_methods: ep.encoding.methods.to_vec(),
                         tags,
-                        sensitive: false,
+                        sensitive: ep.sensitive,
                         loc: Some(loc_from_range(self.app_root, &self.pc.file_set, ep.range)?),
                         allow_unauthenticated: !ep.require_auth,
                         body_limit: ep.body_limit,
@@ -280,6 +305,88 @@ impl MetaBuilder<'_> {
                 }
                 Resource::Gateway(gw) => {
                     dependent.push(Dependent::Gateway((b, gw)));
+                }
+
+                Resource::Metric(m) => {
+                    use crate::encore::parser::schema::v1::Builtin;
+
+                    // Metrics can be defined outside of services, so service_name is None
+                    // Service usage is tracked via Service.metrics field instead
+                    let service_name = None;
+
+                    let value_type = match m.metric_type {
+                        MetricType::Counter | MetricType::CounterGroup => Builtin::Int64 as i32,
+                        MetricType::Gauge | MetricType::GaugeGroup => Builtin::Float64 as i32,
+                    };
+
+                    let mut metric = v1::Metric {
+                        name: m.name.clone(),
+                        doc: m.doc.clone().unwrap_or_default(),
+                        value_type,
+                        service_name,
+                        labels: vec![],
+                        kind: match m.metric_type {
+                            MetricType::Counter | MetricType::CounterGroup => {
+                                v1::metric::MetricKind::Counter as i32
+                            }
+                            MetricType::Gauge | MetricType::GaugeGroup => {
+                                v1::metric::MetricKind::Gauge as i32
+                            }
+                        },
+                    };
+
+                    // Process labels if present
+                    if let Some(ref label_type_sp) = m.label_type {
+                        use crate::parser::resources::parseutil::resolve_interface;
+
+                        // Extract the interface from either Type::Interface or Type::Named
+                        if let Some(iface) = resolve_interface(&self.pc.type_checker, label_type_sp)
+                        {
+                            for field in &iface.fields {
+                                if let FieldName::String(key) = &field.name {
+                                    let label_key = key.to_case(Case::Snake);
+
+                                    // Validate label name is not "service" (reserved)
+                                    if label_key == "service" {
+                                        field.range.err(&format!(
+                                            "invalid label name '{}': the label name 'service' is reserved and automatically added by the Encore runtime",
+                                            key
+                                        ));
+                                        continue;
+                                    }
+
+                                    let field_type = match type_to_proto(&field.typ) {
+                                        Ok(builtin) => builtin as i32,
+                                        Err(err_msg) => {
+                                            field.range.err(&format!(
+                                                "invalid type for metric label '{}': {}. Labels must be string, number, or boolean (or unions thereof)",
+                                                key, err_msg
+                                            ));
+                                            continue;
+                                        }
+                                    };
+
+                                    // Extract doc comment for the label
+                                    let doc = self
+                                        .pc
+                                        .loader
+                                        .module_containing_pos(field.range.start)
+                                        .and_then(|module| {
+                                            module.preceding_comments(field.range.start)
+                                        })
+                                        .unwrap_or_default();
+
+                                    metric.labels.push(v1::metric::Label {
+                                        key: label_key,
+                                        doc,
+                                        r#type: field_type,
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    self.data.metrics.push(metric);
                 }
             }
         }
@@ -433,26 +540,28 @@ impl MetaBuilder<'_> {
         let mut bucket_perms = HashMap::new();
         for u in &self.parse.usages {
             match u {
-                Usage::PublishTopic(publish) => {
-                    let svc =
-                        self.service_for_range(&publish.range)
-                            .ok_or(publish.range.parse_err(
-                                "unable to determine which service this 'publish' call is within",
-                            ))?;
+                Usage::Topic(access) => {
+                    if access.ops.contains(&TopicOperation::Publish) {
+                        let svc =
+                            self.service_for_range(&access.range)
+                                .ok_or(access.range.parse_err(
+                                    "cannot determine which service is accessing this topic",
+                                ))?;
 
-                    // Add the publisher if it hasn't already been seen.
-                    let key = (svc.name.clone(), publish.topic.name.clone());
-                    if seen_publishers.insert(key) {
-                        let service_name = svc.name.clone();
+                        // Add the publisher if it hasn't already been seen.
+                        let key = (svc.name.clone(), access.topic.name.clone());
+                        if seen_publishers.insert(key) {
+                            let service_name = svc.name.clone();
 
-                        let idx = topic_by_name
-                            .get(&publish.topic.name)
-                            .ok_or(publish.range.parse_err("could not resolve topic"))?
-                            .to_owned();
-                        let topic = &mut self.data.pubsub_topics[idx];
-                        topic
-                            .publishers
-                            .push(v1::pub_sub_topic::Publisher { service_name });
+                            let idx = topic_by_name
+                                .get(&access.topic.name)
+                                .ok_or(access.range.parse_err("could not resolve topic"))?
+                                .to_owned();
+                            let topic = &mut self.data.pubsub_topics[idx];
+                            topic
+                                .publishers
+                                .push(v1::pub_sub_topic::Publisher { service_name });
+                        }
                     }
                 }
                 Usage::AccessDatabase(access) => {
@@ -503,14 +612,32 @@ impl MetaBuilder<'_> {
                         .extend(ops);
                 }
 
+                Usage::Metric(access) => {
+                    // Track which services use which metrics (increment/set operations)
+                    let Some(svc) = self.service_for_range(&access.range) else {
+                        access
+                            .range
+                            .err("cannot determine which service is accessing this metric");
+                        continue;
+                    };
+
+                    let idx = svc_index.get(&svc.name).unwrap();
+                    let service = &mut self.data.svcs[*idx];
+
+                    // Only add if not already present (avoid duplicates)
+                    if !service.metrics.contains(&access.metric.name) {
+                        service.metrics.push(access.metric.name.clone());
+                    }
+                }
+
                 Usage::CallEndpoint(call) => {
                     let src_service = self
                         .service_for_range(&call.range)
                         .ok_or(call.range.parse_err("unable to determine service for call"))?
                         .name
                         .clone();
-                    let dst_service = call.endpoint.0.clone();
-                    let dst_endpoint = call.endpoint.1.clone();
+                    let dst_service = call.service.clone();
+                    let dst_endpoint = call.endpoint.clone().unwrap_or_else(|| "".to_string());
 
                     let dst_idx = svc_to_pkg_index
                         .get(&dst_service)
@@ -743,6 +870,70 @@ impl respath::Path {
                 .collect(),
         }
     }
+}
+
+fn basic_to_proto(basic: &crate::parser::types::Basic) -> Builtin {
+    match basic {
+        Basic::Boolean => Builtin::Bool,
+        Basic::String => Builtin::String,
+        Basic::Number => Builtin::Int64,
+        _ => Builtin::Any,
+    }
+}
+
+fn literal_to_proto(lit: &crate::parser::types::Literal) -> Builtin {
+    match lit {
+        Literal::String(_) => Builtin::String,
+        Literal::Number(_) | Literal::BigInt(_) => Builtin::Int64,
+        Literal::Boolean(_) => Builtin::Bool,
+    }
+}
+/// Converts a Type to a protobuf builtin type, handling unions and literals.
+/// Returns an error if the type is not valid for metric labels.
+fn type_to_proto(typ: &Type) -> Result<Builtin, String> {
+    match typ {
+        Type::Basic(basic @ (Basic::String | Basic::Number | Basic::Boolean)) => {
+            Ok(basic_to_proto(basic))
+        }
+        Type::Basic(other) => Err(format!("type '{:?}' is not allowed", other)),
+
+        Type::Literal(lit) => Ok(literal_to_proto(lit)),
+
+        Type::Union(union) => check_union_same_proto_type(&union.types),
+
+        Type::Array(_) => Err("array types are not allowed".to_string()),
+        Type::Interface(_) => Err("object types are not allowed".to_string()),
+        Type::Named(n) => Err(format!(
+            "named type '{}' is not allowed",
+            n.obj.name.clone().unwrap_or_else(|| "unknown".to_string())
+        )),
+        Type::Optional(_) => Err("optional types are not allowed".to_string()),
+        _ => Err("this type is not allowed".to_string()),
+    }
+}
+
+/// Checks if all types in a union map to the same protobuf type.
+/// For example: "hello" | "world" → String, 1 | 2 | 3 → Int64, true | false → Bool
+fn check_union_same_proto_type(types: &[Type]) -> Result<Builtin, String> {
+    if types.is_empty() {
+        return Err("empty union type".to_string());
+    }
+
+    // Get the proto type of the first member
+    let first_proto = type_to_proto(&types[0])?;
+
+    // Check if all remaining types map to the same proto type
+    for typ in &types[1..] {
+        let proto = type_to_proto(typ)?;
+        if proto != first_proto {
+            return Err(format!(
+                "union contains incompatible types: expected all members to be compatible with {:?}",
+                first_proto
+            ));
+        }
+    }
+
+    Ok(first_proto)
 }
 
 fn new_meta() -> v1::Data {

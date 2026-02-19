@@ -122,6 +122,7 @@ impl BuilderCtx<'_, '_> {
             }
 
             Typ::Pointer(ptr) => self.ptr(ptr),
+            Typ::Option(opt) => self.option(opt),
             Typ::Struct(st) => Ok(Value::Struct(self.struct_val(st)?)),
             Typ::Map(map) => self.map(map),
             Typ::List(list) => self.list(list),
@@ -199,6 +200,15 @@ impl BuilderCtx<'_, '_> {
     }
 
     #[inline]
+    fn option(&mut self, opt: &schema::Option) -> Result<Value> {
+        let value = self.typ(&opt.value)?;
+        Ok(Value::Union(vec![
+            self.bov(value),
+            BasicOrValue::Basic(Basic::Null),
+        ]))
+    }
+
+    #[inline]
     fn builtin(&mut self, b: schema::Builtin) -> Value {
         use schema::Builtin;
         Value::Basic(match b {
@@ -206,6 +216,7 @@ impl BuilderCtx<'_, '_> {
             Builtin::Bool => Basic::Bool,
             Builtin::String | Builtin::Bytes | Builtin::Uuid | Builtin::UserId => Basic::String,
             Builtin::Time => Basic::DateTime,
+            Builtin::Decimal => Basic::Decimal,
 
             Builtin::Int
             | Builtin::Uint

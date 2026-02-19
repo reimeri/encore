@@ -1,3 +1,5 @@
+use crate::metrics::counter;
+
 use crate::api::auth::{AuthHandler, AuthPayload, AuthRequest, AuthResponse};
 use crate::api::schema::encoding::Schema;
 use crate::api::{APIResult, HandlerResponse, HandlerResponseInner, PValues};
@@ -14,6 +16,7 @@ pub struct LocalAuthHandler {
     pub schema: Schema,
     pub handler: RwLock<Option<Arc<dyn api::TypedHandler>>>,
     pub tracer: Tracer,
+    pub requests_total: counter::Schema<u64>,
 }
 
 impl LocalAuthHandler {
@@ -64,6 +67,10 @@ impl AuthHandler for LocalAuthHandler {
             let span = model::SpanKey(meta.trace_id, span_id);
             let parent_span = meta.parent_span_id.map(|sp| meta.trace_id.with_span(sp));
 
+            let traced = meta
+                .trace_sampled
+                .unwrap_or_else(|| self.tracer.should_sample(&self.name));
+
             let req = Arc::new(model::Request {
                 span,
                 parent_trace: None,
@@ -82,12 +89,13 @@ impl AuthHandler for LocalAuthHandler {
                         cookie,
                     },
                 }),
+                traced,
             });
 
             let logger = crate::log::root();
             logger.info(Some(&req), "running auth handler", None);
 
-            self.tracer.request_span_start(&req);
+            self.tracer.request_span_start(&req, false);
             let auth_response: HandlerResponse = handler.call(req.clone()).await;
             let duration = tokio::time::Instant::now().duration_since(req.start);
 
@@ -152,7 +160,9 @@ impl AuthHandler for LocalAuthHandler {
                             user_id: auth_uid.clone(),
                         })),
                     };
-                    self.tracer.request_span_end(&model_resp);
+
+                    self.tracer.request_span_end(&model_resp, false);
+                    self.requests_total.with([("code", "ok")]).increment();
                     Ok(AuthResponse::Authenticated {
                         auth_uid,
                         auth_data,
@@ -164,7 +174,10 @@ impl AuthHandler for LocalAuthHandler {
                         duration,
                         data: model::ResponseData::Auth(Err(e.clone())),
                     };
-                    self.tracer.request_span_end(&model_resp);
+                    self.tracer.request_span_end(&model_resp, false);
+                    self.requests_total
+                        .with([("code", e.code.to_string())])
+                        .increment();
                     Err(e)
                 }
             }

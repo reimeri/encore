@@ -5,7 +5,6 @@ import (
 
 	"encr.dev/v2/codegen/apigen/apigenutil"
 	"encr.dev/v2/codegen/internal/genutil"
-	"encr.dev/v2/internals/schema"
 	"encr.dev/v2/internals/schema/schemautil"
 	"encr.dev/v2/parser/apis/api"
 	"encr.dev/v2/parser/apis/api/apienc"
@@ -52,6 +51,7 @@ func (d *responseDesc) EncodeResponse() *Statement {
 		Id("w").Qual("net/http", "ResponseWriter"),
 		Id("json").Qual("github.com/json-iterator/go", "API"),
 		Id("resp").Add(d.Type()),
+		Id("status").Int(),
 	).Params(Err().Error()).BlockFunc(func(g *Group) {
 		if d.ep.Response == nil {
 			g.Return(Nil())
@@ -91,12 +91,12 @@ func (d *responseDesc) EncodeResponse() *Statement {
 				g.Line().Comment("Encode headers")
 				g.Id("headers").Op("=").Map(String()).Index().String().Values(DictFunc(func(dict Dict) {
 					for _, f := range resp.HeaderParameters {
-						if builtin, ok := f.Type.(schema.BuiltinType); ok {
-							encExpr := genutil.MarshalBuiltin(builtin.Kind, Id("resp").Dot(f.SrcName))
-							dict[Lit(f.WireName)] = Index().String().Values(encExpr)
-						} else {
+						encExpr, ok := genutil.MarshalQueryOrHeader(f.Type, Id("resp").Dot(f.SrcName))
+						if !ok {
 							d.gu.Errs.Addf(f.Type.ASTExpr().Pos(), "unsupported type in header: %s", d.gu.TypeToString(f.Type))
+							continue
 						}
+						dict[Lit(f.WireName)] = encExpr
 					}
 				}))
 			}
@@ -109,14 +109,40 @@ func (d *responseDesc) EncodeResponse() *Statement {
 			g.Add(responseEncoder)
 		}
 
-		g.Line().Comment("Write response")
 		if len(resp.HeaderParameters) > 0 {
+			g.Line().Comment("Set response headers")
 			g.For(List(Id("k"), Id("vs")).Op(":=").Range().Id("headers")).Block(
 				For(List(Id("_"), Id("v")).Op(":=").Range().Id("vs")).Block(
 					Id("w").Dot("Header").Call().Dot("Add").Call(Id("k"), Id("v")),
 				),
 			)
 		}
+
+		g.Line().Comment("Set HTTP status code")
+		if resp.HTTPStatusParameter != nil {
+			g.Id("statusCode").Op(":=").Id("status")
+
+			var statusFieldCond *Statement
+			if schemautil.IsPointer(d.ep.Response) {
+				statusFieldCond = Id("resp").Op("!=").Nil().Op("&&").Id("resp").Dot(resp.HTTPStatusParameter.SrcName).Op("!=").Lit(0)
+			} else {
+				statusFieldCond = Id("resp").Dot(resp.HTTPStatusParameter.SrcName).Op("!=").Lit(0)
+			}
+
+			g.If(statusFieldCond).Block(
+				Id("statusCode").Op("=").Int().Call(Id("resp").Dot(resp.HTTPStatusParameter.SrcName)),
+			)
+
+			g.If(Id("statusCode").Op("!=").Lit(0)).Block(
+				Id("w").Dot("WriteHeader").Call(Id("statusCode")),
+			)
+		} else {
+			g.If(Id("status").Op("!=").Lit(0)).Block(
+				Id("w").Dot("WriteHeader").Call(Id("status")),
+			)
+		}
+
+		g.Line().Comment("Write response body")
 		g.Id("w").Dot("Write").Call(Id("respData"))
 		g.Return(Nil())
 	})
@@ -145,6 +171,13 @@ func (d *responseDesc) DecodeExternalResp() *Statement {
 		enc := d.ep.ResponseEncoding()
 		dec := d.gu.NewTypeUnmarshaller("dec")
 		g.Add(dec.Init())
+
+		if enc.HTTPStatusParameter != nil {
+			g.Line().Comment("Set HTTP status field")
+			statusType := d.gu.Type(enc.HTTPStatusParameter.Type)
+			g.Id("resp").Dot(enc.HTTPStatusParameter.SrcName).Op("=").Add(statusType).Call(Id("httpResp").Dot("StatusCode"))
+		}
+
 		apigenutil.DecodeHeaders(g, Id("httpResp").Dot("Header"), Id("resp"), dec, enc.HeaderParameters)
 		apigenutil.DecodeBody(g, Id("httpResp").Dot("Body"), Id("resp"), dec, enc.BodyParameters)
 

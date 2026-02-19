@@ -17,6 +17,7 @@ pub struct InfraConfig {
     pub auth: Option<Vec<Auth>>,
     pub service_discovery: Option<HashMap<String, ServiceDiscovery>>,
     pub metrics: Option<Metrics>,
+    pub used_metrics: Option<Vec<Metric>>,
     pub sql_servers: Option<Vec<SQLServer>>,
     pub redis: Option<HashMap<String, Redis>>,
     pub pubsub: Option<Vec<PubSub>>,
@@ -146,6 +147,12 @@ pub struct GCPCloudMonitoringMetrics {
 pub struct AWSCloudWatchMetrics {
     pub collection_interval: Option<i32>,
     pub namespace: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Metric {
+    name: String,
+    services: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -287,7 +294,7 @@ pub struct AWSTopic {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AWSSub {
-    pub arn: String,
+    pub url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -600,6 +607,15 @@ pub fn map_infra_to_runtime(infra: InfraConfig) -> RuntimeConfig {
         observability,
         service_discovery,
         graceful_shutdown,
+        metrics: infra
+            .used_metrics
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| pbruntime::Metric {
+                encore_name: m.name,
+                services: m.services,
+            })
+            .collect(),
     });
 
     let mut credentials = Credentials {
@@ -863,7 +879,7 @@ pub fn map_infra_to_runtime(infra: InfraConfig) -> RuntimeConfig {
                                         topic_encore_name: topic_name.clone(),
                                         subscription_encore_name: sub_name.clone(),
                                         topic_cloud_name: topic.arn.clone(),
-                                        subscription_cloud_name: sub.arn.clone(),
+                                        subscription_cloud_name: sub.url.clone(),
                                         push_only: false, // AWS SQS doesn't typically use push config
                                         provider_config: None, // AWS doesn't need additional provider config
                                     }

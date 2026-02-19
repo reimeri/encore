@@ -2,9 +2,11 @@ package export
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
@@ -17,6 +19,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"encr.dev/cli/daemon/apps"
+	"encr.dev/cli/daemon/internal/runlog"
 	"encr.dev/internal/env"
 	"encr.dev/internal/version"
 	"encr.dev/pkg/appfile"
@@ -31,7 +34,7 @@ import (
 )
 
 // Docker exports the app as a docker image.
-func Docker(ctx context.Context, app *apps.Instance, req *daemonpb.ExportRequest, log zerolog.Logger) (success bool, err error) {
+func Docker(ctx context.Context, app *apps.Instance, req *daemonpb.ExportRequest, log zerolog.Logger, streamLog runlog.Log) (success bool, err error) {
 	params := req.GetDocker()
 	if params == nil {
 		return false, errors.Newf("unsupported format: %T", req.Format)
@@ -61,12 +64,33 @@ func Docker(ctx context.Context, app *apps.Instance, req *daemonpb.ExportRequest
 	appLang := app.Lang()
 	bld := builderimpl.Resolve(appLang, expSet)
 	defer fns.CloseIgnore(bld)
+	prepareResult, err := bld.Prepare(ctx, builder.PrepareParams{
+		Build:      buildInfo,
+		App:        app,
+		WorkingDir: ".",
+	})
+	if err != nil {
+		return false, err
+	}
+
+	hooks, err := app.Hooks()
+	if err != nil {
+		return false, err
+	}
+
+	if hooks.PreBuild.IsSet() {
+		if err := executeHook(ctx, hooks.PreBuild, app.Root(), streamLog); err != nil {
+			return false, err
+		}
+	}
+
 	parse, err := bld.Parse(ctx, builder.ParseParams{
 		Build:       buildInfo,
 		App:         app,
 		Experiments: expSet,
 		WorkingDir:  ".",
 		ParseTests:  false,
+		Prepare:     prepareResult,
 	})
 	if err != nil {
 		return false, err
@@ -74,21 +98,6 @@ func Docker(ctx context.Context, app *apps.Instance, req *daemonpb.ExportRequest
 	if err := app.CacheMetadata(parse.Meta); err != nil {
 		log.Info().Err(err).Msg("failed to cache metadata")
 		return false, errors.Wrap(err, "cache metadata")
-	}
-
-	// Validate the service configs.
-	_, err = bld.ServiceConfigs(ctx, builder.ServiceConfigsParams{
-		Parse: parse,
-		CueMeta: &cueutil.Meta{
-			// Dummy data to satisfy config validation.
-			APIBaseURL: "http://localhost:0",
-			EnvName:    "encore-eject",
-			EnvType:    cueutil.EnvType_Development,
-			CloudType:  cueutil.CloudType_Local,
-		},
-	})
-	if err != nil {
-		return false, err
 	}
 
 	log.Info().Msgf("compiling Encore application for %s/%s", req.Goos, req.Goarch)
@@ -104,6 +113,12 @@ func Docker(ctx context.Context, app *apps.Instance, req *daemonpb.ExportRequest
 	if err != nil {
 		log.Info().Err(err).Msg("compilation failed")
 		return false, errors.Wrap(err, "compilation failed")
+	}
+
+	if hooks.PostBuild.IsSet() {
+		if err := executeHook(ctx, hooks.PostBuild, app.Root(), streamLog); err != nil {
+			return false, err
+		}
 	}
 
 	var crossNodeRuntime option.Option[dockerbuild.HostPath]
@@ -192,6 +207,28 @@ func Docker(ctx context.Context, app *apps.Instance, req *daemonpb.ExportRequest
 		}
 		spec.WriteFiles[defaultInfraConfigPath] = data
 		spec.Env = append(spec.Env, fmt.Sprintf("ENCORE_INFRA_CONFIG_PATH=%s", defaultInfraConfigPath))
+
+		// Validate the service configs.
+		cfgs, err := bld.ServiceConfigs(ctx, builder.ServiceConfigsParams{
+			Parse: parse,
+			CueMeta: &cueutil.Meta{
+				APIBaseURL: cfg.Metadata.BaseURL,
+				EnvName:    cfg.Metadata.EnvName,
+				EnvType:    orDefault(cueutil.EnvType(cfg.Metadata.EnvType), "development"),
+				CloudType:  orDefault(cueutil.CloudType(cfg.Metadata.Cloud), "local"),
+			},
+		})
+		if err != nil {
+			return false, err
+		}
+		for svcName, cfgStr := range cfgs.Configs {
+			spec.Env = append(spec.Env, fmt.Sprintf(
+				"%s%s=%s",
+				"ENCORE_CFG_",
+				strings.ToUpper(svcName),
+				base64.RawURLEncoding.EncodeToString([]byte(cfgStr)),
+			))
+		}
 	}
 	var baseImgOverride option.Option[v1.Image]
 	if params.BaseImageTag != "" {
@@ -253,6 +290,14 @@ func Docker(ctx context.Context, app *apps.Instance, req *daemonpb.ExportRequest
 	return true, nil
 }
 
+func orDefault[T comparable](value T, defaultValue T) T {
+	var zero T
+	if value == zero {
+		return defaultValue
+	}
+	return value
+}
+
 func resolveBaseImage(ctx context.Context, log zerolog.Logger, p *daemonpb.DockerExportParams, spec *dockerbuild.ImageSpec) (v1.Image, error) {
 	baseImgTag := p.BaseImageTag
 	if baseImgTag == "" || baseImgTag == "scratch" {
@@ -267,7 +312,7 @@ func resolveBaseImage(ctx context.Context, log zerolog.Logger, p *daemonpb.Docke
 	}
 
 	fetchRemote := true
-	img, err := daemon.Image(baseImgRef)
+	img, err := daemon.Image(baseImgRef, daemon.WithUnbufferedOpener())
 	if err == nil {
 		file, err := img.ConfigFile()
 		if err == nil {
@@ -307,5 +352,12 @@ func pushDockerImage(ctx context.Context, log zerolog.Logger, img v1.Image, dest
 		return errors.WithStack(err)
 	}
 	log.Info().Msg("successfully pushed docker image")
+	return nil
+}
+
+func executeHook(ctx context.Context, hook appfile.Hook, workingDir string, streamLog runlog.Log) error {
+	if err := hook.Run(ctx, workingDir, streamLog.Stdout(false), streamLog.Stderr(false)); err != nil {
+		return errors.Wrap(err, "execute hook")
+	}
 	return nil
 }

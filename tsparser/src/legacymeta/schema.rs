@@ -193,6 +193,13 @@ impl BuilderCtx<'_, '_> {
             }
 
             Type::Custom(Custom::WireSpec(spec)) => self.typ(&spec.underlying)?,
+            Type::Custom(Custom::Decimal) => schema::Type {
+                typ: Some(styp::Typ::Builtin(schema::Builtin::Decimal as i32)),
+                validation: None,
+            },
+            Type::Function(_) => {
+                anyhow::bail!("function types are not supported in schemas")
+            }
         })
     }
 
@@ -216,13 +223,8 @@ impl BuilderCtx<'_, '_> {
                 })),
                 validation: None,
             },
-
-            Basic::Void
-            | Basic::Object
-            | Basic::BigInt
-            | Basic::Symbol
-            | Basic::Undefined
-            | Basic::Never => {
+            Basic::BigInt => b(schema::Builtin::Decimal),
+            Basic::Void | Basic::Object | Basic::Symbol | Basic::Undefined | Basic::Never => {
                 HANDLER.with(|h| h.err(&format!("unsupported basic type in schema: {typ:?}")));
                 b(schema::Builtin::Any)
             }
@@ -360,6 +362,24 @@ impl BuilderCtx<'_, '_> {
                                     schema::wire_spec::Cookie {
                                         name: spec.name_override.clone(),
                                     },
+                                )),
+                            })
+                        }
+
+                        WireLocation::HttpStatus => {
+                            tags.push(schema::Tag {
+                                key: "encore".into(),
+                                name: "httpstatus".into(),
+                                options: if f.optional {
+                                    vec!["optional".into()]
+                                } else {
+                                    vec![]
+                                },
+                            });
+
+                            Some(schema::WireSpec {
+                                location: Some(schema::wire_spec::Location::HttpStatus(
+                                    schema::wire_spec::HttpStatus {},
                                 )),
                             })
                         }

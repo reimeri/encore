@@ -17,6 +17,7 @@ import (
 	"encr.dev/internal/userconfig"
 	"encr.dev/internal/version"
 	"encr.dev/pkg/fns"
+	"encr.dev/pkg/option"
 	daemonpb "encr.dev/proto/encore/daemon"
 )
 
@@ -104,14 +105,14 @@ func (s *Server) Run(req *daemonpb.RunRequest, stream daemonpb.Daemon_RunServer)
 
 	// If force upgrade has been enabled, we force the upgrade now before we try and run the app
 	if newVer != nil && newVer.ForceUpgrade {
-		_, _ = fmt.Fprintf(stderr, aurora.Red("An urgent security update for Encore is available.").String()+"\n")
+		_, _ = fmt.Fprint(stderr, aurora.Red("An urgent security update for Encore is available.").String()+"\n")
 		if newVer.SecurityNotes != "" {
-			_, _ = fmt.Fprintf(stderr, aurora.Sprintf(aurora.Yellow("%s"), newVer.SecurityNotes)+"\n")
+			_, _ = fmt.Fprint(stderr, aurora.Sprintf(aurora.Yellow("%s"), newVer.SecurityNotes)+"\n")
 		}
 
 		_, _ = fmt.Fprintf(stderr, "Upgrading Encore to %v...\n", newVer.Version())
 		if err := newVer.DoUpgrade(stderr, stderr); err != nil {
-			_, _ = fmt.Fprintf(stderr, aurora.Sprintf(aurora.Red("Upgrade failed: %v"), err)+"\n")
+			_, _ = fmt.Fprint(stderr, aurora.Sprintf(aurora.Red("Upgrade failed: %v"), err)+"\n")
 		}
 
 		slog.FlushBuffers()
@@ -137,16 +138,18 @@ func (s *Server) Run(req *daemonpb.RunRequest, stream daemonpb.Daemon_RunServer)
 	}
 
 	runInstance, err := s.mgr.Start(ctx, run.StartParams{
-		App:        app,
-		NS:         ns,
-		WorkingDir: req.WorkingDir,
-		Listener:   ln,
-		ListenAddr: displayListenAddr,
-		Watch:      req.Watch,
-		Environ:    req.Environ,
-		OpsTracker: ops,
-		Browser:    browser,
-		Debug:      run.DebugModeFromProto(req.DebugMode),
+		App:                app,
+		NS:                 ns,
+		WorkingDir:         req.WorkingDir,
+		Listener:           ln,
+		ListenAddr:         displayListenAddr,
+		Watch:              req.Watch,
+		Environ:            req.Environ,
+		OpsTracker:         ops,
+		Browser:            browser,
+		Debug:              run.DebugModeFromProto(req.DebugMode),
+		LogLevel:           option.FromPointer(req.LogLevel),
+		ScrubSensitiveData: req.ScrubSensitiveData,
 	})
 	if err != nil {
 		s.mu.Unlock()

@@ -164,6 +164,11 @@
 				file: "go/quick-start"
 			}, {
 				kind: "basic"
+				text: "AI Integration"
+				path: "/go/ai-integration"
+				file: "go/ai-integration"
+			}, {
+				kind: "basic"
 				text: "FAQ"
 				path: "/go/faq"
 				file: "go/faq"
@@ -380,6 +385,11 @@
 				text: "Validation"
 				path: "/go/develop/validation"
 				file: "go/develop/validation"
+			}, {
+				kind: "basic"
+				text: "Environment Variables"
+				path: "/go/develop/env-vars"
+				file: "go/develop/env-vars"
 			}]
 		},
 		{
@@ -445,6 +455,11 @@
 				text: "Logging"
 				path: "/go/observability/logging"
 				file: "go/observability/logging"
+			}, {
+				kind: "basic"
+				text: "Metrics"
+				path: "/go/observability/metrics"
+				file: "go/observability/metrics"
 			}]
 		},
 		{
@@ -618,6 +633,11 @@
 				file: "ts/quick-start"
 			}, {
 				kind: "basic"
+				text: "AI Integration"
+				path: "/ts/ai-integration"
+				file: "ts/ai-integration"
+			}, {
+				kind: "basic"
 				text: "FAQ"
 				path: "/ts/faq"
 				file: "ts/faq"
@@ -729,6 +749,11 @@
 					text: "Cookies"
 					path: "/ts/primitives/cookies"
 					file: "ts/primitives/cookies"
+				}, {
+					kind: "basic"
+					text: "Types"
+					path: "/ts/primitives/types"
+					file: "ts/primitives/types"
 				}]
 			}, {
 				kind: "basic"
@@ -823,11 +848,30 @@
 				text: "Multithreading"
 				path: "/ts/develop/multithreading"
 				file: "ts/develop/multithreading"
-			},{
+			}, {
 				kind: "basic"
 				text: "Running Scripts"
 				path: "/ts/develop/running-scripts"
 				file: "ts/develop/running-scripts"
+			}, {
+				kind: "basic"
+				text: "Environment Variables"
+				path: "/ts/develop/env-vars"
+				file: "ts/develop/env-vars"
+			}, {
+				kind: "accordion"
+				text: "Monorepo"
+				accordion: [{
+					kind: "basic"
+					text: "Turborepo"
+					path: "/ts/develop/monorepo/turborepo"
+					file: "ts/develop/monorepo/turborepo"
+				}, {
+					kind: "basic"
+					text: "Nx"
+					path: "/ts/develop/monorepo/nx"
+					file: "ts/develop/monorepo/nx"
+				}]
 			}]
 		},
 		{
@@ -923,6 +967,11 @@
 				text: "Service Catalog"
 				path: "/ts/observability/service-catalog"
 				file: "ts/observability/service-catalog"
+			}, {
+				kind: "basic"
+				text: "Metrics"
+				path: "/ts/observability/metrics"
+				file: "ts/observability/metrics"
 			}]
 		},
 		{
@@ -1038,6 +1087,11 @@
 				text: "Introduction"
 				path: "/platform/introduction"
 				file: "platform/introduction"
+			}, {
+				kind: "basic"
+				text: "AI Integration"
+				path: "/platform/ai-integration"
+				file: "platform/ai-integration"
 			}]
 		},
 		{
@@ -1232,12 +1286,7 @@
 			text: "Migration guides"
 			items: [{
 				kind: "basic"
-				text: "Try Encore for an existing project"
-				path: "/platform/migration/try-encore"
-				file: "platform/migration/try-encore"
-			}, {
-				kind: "basic"
-				text: "Migrate an existing backend to Encore"
+				text: "Migrate to Encore"
 				path: "/platform/migration/migrate-to-encore"
 				file: "platform/migration/migrate-to-encore"
 			}, {

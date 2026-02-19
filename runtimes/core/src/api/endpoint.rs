@@ -23,6 +23,7 @@ use crate::api::{jsonschema, schema, ErrCode, Error};
 use crate::encore::parser::meta::v1::rpc;
 use crate::encore::parser::meta::v1::{self as meta, selector};
 use crate::log::LogFromRust;
+use crate::metrics::counter;
 use crate::model::StreamDirection;
 use crate::names::EndpointName;
 use crate::trace;
@@ -30,6 +31,14 @@ use crate::{model, Hosted};
 
 use super::pvalue::{PValue, PValues};
 use super::reqauth::caller::Caller;
+
+/// Cached environment variable for whether to include error stacks in error response logs.
+static ENCORE_LOG_INCLUDE_ERROR_STACK: once_cell::sync::Lazy<bool> =
+    once_cell::sync::Lazy::new(|| {
+        std::env::var("ENCORE_LOG_INCLUDE_ERROR_STACK")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false)
+    });
 
 #[derive(Debug)]
 pub struct SuccessResponse {
@@ -179,6 +188,9 @@ pub struct Endpoint {
 
     /// The tags for this endpoint.
     pub tags: Vec<String>,
+
+    /// Treat endpoint as sensitive and redact details from traces.
+    pub sensitive: bool,
 }
 
 impl Endpoint {
@@ -370,6 +382,7 @@ pub fn endpoints_from_meta(
                 header: resp_schema.header,
                 cookie: resp_schema.cookie,
                 body: resp_schema.body,
+                http_status: resp_schema.http_status,
                 stream: ep.ep.streaming_response,
             }),
             raw,
@@ -378,6 +391,7 @@ pub fn endpoints_from_meta(
             body_limit: ep.ep.body_limit,
             static_assets: ep.ep.static_assets.clone(),
             tags,
+            sensitive: ep.ep.sensitive,
         };
 
         endpoint_map.insert(
@@ -393,6 +407,7 @@ pub(super) struct EndpointHandler {
     pub endpoint: Arc<Endpoint>,
     pub handler: Arc<dyn BoxedHandler>,
     pub shared: Arc<SharedEndpointData>,
+    pub requests_total: counter::Schema<u64>,
 }
 
 #[derive(Debug)]
@@ -414,6 +429,7 @@ impl Clone for EndpointHandler {
             endpoint: self.endpoint.clone(),
             handler: self.handler.clone(),
             shared: self.shared.clone(),
+            requests_total: self.requests_total.clone(),
         }
     }
 }
@@ -488,6 +504,13 @@ impl EndpointHandler {
         let span = trace_id.with_span(span_id);
         let parent_span = meta.parent_span_id.map(|sp| trace_id.with_span(sp));
 
+        let traced = if platform_seal_of_approval.is_some() {
+            true
+        } else {
+            meta.trace_sampled
+                .unwrap_or_else(|| self.shared.tracer.should_sample(&self.endpoint.name))
+        };
+
         let data = if let Some(direction) = stream_direction {
             let websocket_upgrade = Mutex::new(Some(
                 WebSocketUpgrade::from_request_parts(&mut parts, &()).await?,
@@ -538,6 +561,7 @@ impl EndpointHandler {
             is_platform_request: platform_seal_of_approval.is_some(),
             internal_caller,
             data,
+            traced,
         });
 
         Ok(request)
@@ -555,6 +579,7 @@ impl EndpointHandler {
             };
 
             let internal_caller = request.internal_caller.clone();
+            let sensitive = self.endpoint.sensitive;
 
             // If the endpoint isn't exposed, return a 404.
             if !self.endpoint.exposed && !request.allows_private_endpoint_call() {
@@ -580,14 +605,13 @@ impl EndpointHandler {
             let logger = crate::log::root();
             logger.info(Some(&request), "starting request", None);
 
-            self.shared.tracer.request_span_start(&request);
+            self.shared.tracer.request_span_start(&request, sensitive);
 
             let resp: ResponseData = self.handler.call(request.clone()).await;
 
             let duration = tokio::time::Instant::now().duration_since(request.start);
 
             // If we had a request failure, log that separately.
-
             if let ResponseData::Typed(Err(err)) = &resp {
                 logger.error(Some(&request), "request failed", Some(err), {
                     let mut fields = crate::log::Fields::new();
@@ -595,9 +619,31 @@ impl EndpointHandler {
                         "code".into(),
                         serde_json::Value::String(err.code.to_string()),
                     );
+
+                    if let Some(internal_message) = &err.internal_message {
+                        fields.insert(
+                            "internal_message".into(),
+                            serde_json::Value::String(internal_message.clone()),
+                        );
+                    }
+
+                    if *ENCORE_LOG_INCLUDE_ERROR_STACK {
+                        if let Some(stack) = &err.stack {
+                            if let Ok(value) = serde_json::to_value(stack) {
+                                fields.insert("stack".into(), value);
+                            }
+                        }
+                    }
+
                     Some(fields)
                 });
             }
+
+            let code = match &resp {
+                ResponseData::Typed(Ok(_)) => "ok".to_string(),
+                ResponseData::Typed(Err(err)) => err.code.to_string(),
+                ResponseData::Raw(resp) => ErrCode::from(resp.status()).to_string(),
+            };
 
             logger.info(Some(&request), "request completed", {
                 let mut fields = crate::log::Fields::new();
@@ -614,13 +660,7 @@ impl EndpointHandler {
                     )),
                 );
 
-                let code = match &resp {
-                    ResponseData::Typed(Ok(_)) => "ok".to_string(),
-                    ResponseData::Typed(Err(err)) => err.code.to_string(),
-                    ResponseData::Raw(resp) => ErrCode::from(resp.status()).to_string(),
-                };
-
-                fields.insert("code".into(), serde_json::Value::String(code));
+                fields.insert("code".into(), serde_json::Value::String(code.clone()));
                 Some(fields)
             });
 
@@ -654,7 +694,8 @@ impl EndpointHandler {
                         resp_headers: encoded_resp.headers().clone(),
                     }),
                 };
-                self.shared.tracer.request_span_end(&model_resp);
+                self.shared.tracer.request_span_end(&model_resp, sensitive);
+                self.requests_total.with([("code", code)]).increment();
             }
 
             if let Ok(val) = HeaderValue::from_str(request.span.0.serialize_encore().as_str()) {

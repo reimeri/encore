@@ -28,7 +28,7 @@ var (
 
 	errResponseTypeMustOnlyBeBodyOrHeaders = errRange.New(
 		"Invalid response type",
-		"API response type must only contain a body or headers parameters.",
+		"API response type must only contain a body, headers or status parameters.",
 	)
 
 	errRequestMustBeNamedStruct = errRange.New(
@@ -77,5 +77,15 @@ var (
 		errors.WithDetails("APIs which are sent as GET, HEAD or DELETE requests are unable to contain JSON bodies, "+
 			"thus all parameters must be sent as query strings or headers. "+
 			"See https://encore.dev/docs/develop/api-schemas#supported-types for more information."),
+	)
+
+	errMultipleHTTPStatusFields = errRange.New(
+		"Invalid response type",
+		"Only one field can be tagged with encore:\"httpstatus\" per response struct.",
+	)
+
+	errHTTPStatusFieldMustBeInt = errRange.New(
+		"Invalid response type",
+		"Fields tagged with encore:\"httpstatus\" must be of an integer type.",
 	)
 )

@@ -52,6 +52,9 @@ pub enum Type {
 
     // A custom type of some kind.
     Custom(Custom),
+
+    /// A function type
+    Function(FunctionType),
 }
 
 #[derive(Debug, Clone, Hash, Serialize)]
@@ -76,16 +79,99 @@ pub struct Validated {
     pub expr: validation::Expr,
 }
 
+#[derive(Debug, Clone, Hash, Serialize)]
+pub struct FunctionType {
+    /// Function parameters with names, types, and modifiers
+    pub params: Vec<FunctionParam>,
+
+    /// Return type of the function
+    pub return_type: Box<Type>,
+
+    /// Generic type parameters
+    pub type_params: Option<Vec<GenericTypeParam>>,
+}
+
+#[derive(Debug, Clone, Hash, Serialize)]
+pub struct FunctionParam {
+    /// Parameter name (optional for destructured params)
+    pub name: Option<String>,
+
+    /// Parameter type
+    pub typ: Type,
+
+    /// Whether parameter is optional (foo?: string)
+    pub optional: bool,
+
+    /// Whether this is a rest parameter (...args: string[])
+    pub rest: bool,
+}
+
+#[derive(Debug, Clone, Hash, Serialize)]
+pub struct GenericTypeParam {
+    pub idx: usize,
+    pub name: String,
+    pub constraint: Option<Box<Type>>,
+    pub default: Option<Box<Type>>,
+}
+
+impl FunctionType {
+    pub fn identical(&self, other: &FunctionType) -> bool {
+        // Check parameter count and types
+        if self.params.len() != other.params.len() {
+            return false;
+        }
+
+        for (a, b) in self.params.iter().zip(&other.params) {
+            if !a.identical(b) {
+                return false;
+            }
+        }
+
+        // Check return type
+        if !self.return_type.identical(&other.return_type) {
+            return false;
+        }
+
+        // Type parameters must match in count (names don't matter for structural equality)
+        match (&self.type_params, &other.type_params) {
+            (Some(a), Some(b)) if a.len() == b.len() => {
+                for (tp_a, tp_b) in a.iter().zip(b) {
+                    if let (Some(c_a), Some(c_b)) = (&tp_a.constraint, &tp_b.constraint) {
+                        if !c_a.identical(c_b) {
+                            return false;
+                        }
+                    } else if tp_a.constraint.is_some() != tp_b.constraint.is_some() {
+                        return false;
+                    }
+                }
+                true
+            }
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
+impl FunctionParam {
+    pub fn identical(&self, other: &FunctionParam) -> bool {
+        self.typ.identical(&other.typ) && self.optional == other.optional && self.rest == other.rest
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Hash)]
 pub enum Custom {
     /// A specification of how the type should be encoded on the wire.
     WireSpec(WireSpec),
+    /// A Decimal type with arbitrary precision.
+    Decimal,
 }
 
 impl Custom {
     pub fn identical(&self, other: &Custom) -> bool {
         match (self, other) {
             (Custom::WireSpec(a), Custom::WireSpec(b)) => a.identical(b),
+            (Custom::Decimal, Custom::Decimal) => true,
+            _ => false,
         }
     }
 }
@@ -108,6 +194,7 @@ pub enum WireLocation {
     Header,
     PubSubAttr,
     Cookie,
+    HttpStatus,
 }
 
 impl WireSpec {
@@ -144,6 +231,7 @@ impl Type {
             (Type::Generic(a), Type::Generic(b)) => a.identical(b),
             (Type::Enum(a), Type::Enum(b)) => a.identical(b),
             (Type::Custom(a), Type::Custom(b)) => a.identical(b),
+            (Type::Function(a), Type::Function(b)) => a.identical(b),
             _ => false,
         }
     }
@@ -176,6 +264,9 @@ impl Type {
                     expr: validated.expr.clone().or(expr.clone()),
                 }))
             }
+
+            // Functions don't merge in unions
+            (Type::Function(_), Type::Function(_)) => None,
 
             // TODO more rules?
 
@@ -305,9 +396,10 @@ pub struct Interface {
     /// Set for index signature types, like `[key: string]: number`.
     pub index: Option<(Box<Type>, Box<Type>)>,
 
-    /// Callable signature, like `(a: number): string`.
-    /// The first tuple element is the args, and the second is the returns.
-    pub call: Option<(Vec<Type>, Vec<Type>)>,
+    /// Callable signatures, like `(a: number): string`.
+    /// Supports multiple overloaded signatures.
+    /// Each tuple contains (params, return_type).
+    pub call: Option<Vec<(Vec<Type>, Box<Type>)>>,
 }
 
 impl Interface {
@@ -345,6 +437,32 @@ impl Interface {
             if !self_key.identical(other_key) || !self_value.identical(other_value) {
                 return false;
             }
+        }
+
+        // Compare call signatures.
+        match (&self.call, &other.call) {
+            (Some(self_overloads), Some(other_overloads)) => {
+                if self_overloads.len() != other_overloads.len() {
+                    return false;
+                }
+                for ((self_params, self_ret), (other_params, other_ret)) in
+                    self_overloads.iter().zip(other_overloads)
+                {
+                    if self_params.len() != other_params.len() {
+                        return false;
+                    }
+                    for (a, b) in self_params.iter().zip(other_params) {
+                        if !a.identical(b) {
+                            return false;
+                        }
+                    }
+                    if !self_ret.as_ref().identical(other_ret.as_ref()) {
+                        return false;
+                    }
+                }
+            }
+            (None, None) => {}
+            _ => return false,
         }
 
         true
@@ -562,14 +680,21 @@ pub struct Mapped {
     /// Whether to force fields to be optional (Some(True)), to make them required (Some(False)),
     /// or to keep them as-is (None).
     pub optional: Option<bool>,
-    // Indicates a remapping of the property name.
-    // Must be evaluated using the property name in the evaluation context.
-    // pub as_type: Option<Box<Type>>,
+
+    /// Indicates a remapping of the property name.
+    /// Must be evaluated using the property name in the evaluation context.
+    pub as_type: Option<Box<Type>>,
 }
 
 impl Mapped {
     pub fn identical(&self, other: &Mapped) -> bool {
-        self.in_type.identical(&other.in_type) && self.value_type.identical(&other.value_type)
+        self.in_type.identical(&other.in_type)
+            && self.value_type.identical(&other.value_type)
+            && match (&self.as_type, &other.as_type) {
+                (Some(a), Some(b)) => a.identical(b),
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
 

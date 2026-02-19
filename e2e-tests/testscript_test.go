@@ -1,3 +1,5 @@
+//go:build e2e
+
 package tests
 
 import (
@@ -48,7 +50,7 @@ func doRun(t *testing.T, experiments []string) {
 			e.Setenv("EXTRA_EXPERIMENTS", strings.Join(experiments, ","))
 			e.Setenv("HOME", home)
 			e.Setenv("GOFLAGS", "-modcacherw")
-			gomod := []byte("module test\n\ngo 1.21.0\n\nrequire encore.dev v1.13.4")
+			gomod := []byte("module test\n\ngo 1.21.0\n\nrequire encore.dev v1.52.0")
 			if err := os.WriteFile(filepath.Join(e.WorkDir, "go.mod"), gomod, 0755); err != nil {
 				return err
 			}
@@ -71,7 +73,12 @@ func doRun(t *testing.T, experiments []string) {
 					exp += extra
 				}
 
-				app := RunApp(getTB(ts), getWorkdir(ts), log, []string{"ENCORE_EXPERIMENT=" + exp})
+				env := []string{"ENCORE_EXPERIMENT=" + exp}
+				if nodePath, ok := getNodeJSPath().Get(); ok {
+					env = append(env, "PATH="+nodePath)
+				}
+
+				app := RunApp(getTB(ts), getWorkdir(ts), log, env)
 				setVal(ts, "app", app)
 				setVal(ts, "log", log)
 			},

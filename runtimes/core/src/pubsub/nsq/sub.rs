@@ -37,8 +37,11 @@ impl NsqSubscription {
         cfg: &pb::PubSubSubscription,
         meta: &meta::pub_sub_topic::Subscription,
     ) -> Self {
-        let topic = NSQTopic::new(cfg.topic_cloud_name.clone()).unwrap();
-        let channel = NSQChannel::new(cfg.subscription_cloud_name.clone()).unwrap();
+        let topic = NSQTopic::new(&cfg.topic_cloud_name)
+            .expect("topic_cloud_name should be valid NSQ topic name");
+
+        let channel = NSQChannel::new(&cfg.subscription_cloud_name)
+            .expect("subscription_cloud_name should be valid NSQ channel name");
 
         let mut config = NSQConsumerConfig::new(topic, channel)
             .set_sources(NSQConsumerConfigSources::Daemons(vec![addr.clone()]))
@@ -107,7 +110,52 @@ impl Subscription for NsqSubscription {
 
 async fn process_message(mut msg: NSQMessage, handler: Arc<SubHandler>) {
     let body: Vec<u8> = msg.body.drain(..).collect();
-    let result = handle_message(body, msg.timestamp, msg.attempt, handler).await;
+    let timestamp = msg.timestamp;
+    let attempt = msg.attempt;
+
+    // Create a channel to signal when to stop sending touch messages
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Spawn a background task to send touch messages every 30 seconds
+    let touch_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        // Skip the first tick (immediate)
+        interval.tick().await;
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    msg.touch().await;
+                }
+                _ = &mut stop_rx => {
+                    // Stop signal received, exit the loop
+                    break;
+                }
+            }
+        }
+
+        // Return the message so we can finish or requeue it
+        msg
+    });
+
+    let result = handle_message(body, timestamp, attempt, handler).await;
+
+    // Signal the touch task to stop and return the message
+    let _ = stop_tx.send(());
+    let msg = match touch_handle.await {
+        Ok(msg) => msg,
+        Err(err) => {
+            log::error!(
+                "touch task failed, unable to finish or requeue message: {:?}",
+                err
+            );
+            // If the touch task failed, we can't access the message to finish or requeue it.
+            // NSQ will automatically requeue the message after the timeout expires,
+            // so we return early and let NSQ handle the requeue.
+            return;
+        }
+    };
+
     match result {
         Ok(()) => msg.finish().await,
         Err(err) => {

@@ -85,7 +85,7 @@ var EncoreInternal_api_APIDesc_Bar = &__api.Desc[*EncoreInternal_BarReq, EncoreI
 	EncodeExternalReq: func(reqData *EncoreInternal_BarReq, stream *jsoniter.Stream) (httpHeader http.Header, queryString url.Values, err error) {
 		return nil, nil, nil
 	},
-	EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp EncoreInternal_BarResp) (err error) {
+	EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp EncoreInternal_BarResp, status int) (err error) {
 		return nil
 	},
 	Endpoint:            "Bar",
@@ -103,10 +103,14 @@ var EncoreInternal_api_APIDesc_Bar = &__api.Desc[*EncoreInternal_BarReq, EncoreI
 	ReqUserPayload: func(reqData *EncoreInternal_BarReq) any {
 		return nil
 	},
-	Service:           "bar",
-	ServiceMiddleware: []*__api.Middleware{},
-	SvcNum:            1,
-	Tags:              nil,
+	ScrubRequestHeaders:  nil,
+	ScrubRequestPaths:    nil,
+	ScrubResponseHeaders: nil,
+	ScrubResponsePaths:   nil,
+	Service:              "bar",
+	ServiceMiddleware:    []*__api.Middleware{},
+	SvcNum:               1,
+	Tags:                 nil,
 }
 -- want:encore_internal/main/main.go --
 package main
@@ -193,7 +197,7 @@ var EncoreInternal_api_APIDesc_Foo = &__api.Desc[*EncoreInternal_FooReq, EncoreI
 	EncodeExternalReq: func(reqData *EncoreInternal_FooReq, stream *jsoniter.Stream) (httpHeader http.Header, queryString url.Values, err error) {
 		return nil, nil, nil
 	},
-	EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp EncoreInternal_FooResp) (err error) {
+	EncodeResp: func(w http.ResponseWriter, json jsoniter.API, resp EncoreInternal_FooResp, status int) (err error) {
 		return nil
 	},
 	Endpoint:            "Foo",
@@ -211,10 +215,14 @@ var EncoreInternal_api_APIDesc_Foo = &__api.Desc[*EncoreInternal_FooReq, EncoreI
 	ReqUserPayload: func(reqData *EncoreInternal_FooReq) any {
 		return nil
 	},
-	Service:           "foo",
-	ServiceMiddleware: []*__api.Middleware{},
-	SvcNum:            2,
-	Tags:              nil,
+	ScrubRequestHeaders:  nil,
+	ScrubRequestPaths:    nil,
+	ScrubResponseHeaders: nil,
+	ScrubResponsePaths:   nil,
+	Service:              "foo",
+	ServiceMiddleware:    []*__api.Middleware{},
+	SvcNum:               2,
+	Tags:                 nil,
 }
 -- want:synthetic/static_config.go --
 package synthetic

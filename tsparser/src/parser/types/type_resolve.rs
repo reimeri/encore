@@ -239,13 +239,6 @@ impl Ctx<'_> {
             return Type::Basic(Basic::Never);
         };
 
-        if let Some(name_type) = &tt.name_type {
-            HANDLER.with(|handler| {
-                handler.span_err(name_type.span(), "'as' type annotation not yet supported")
-            });
-            return Type::Basic(Basic::Never);
-        };
-
         // First parse the "in" type.
         let in_type = self.btyp(in_type);
 
@@ -258,6 +251,9 @@ impl Ctx<'_> {
         // Next, parse the value type.
         let value_type = nested.btyp(value_type);
 
+        // Parse the 'as' type annotation if present.
+        let as_type = tt.name_type.as_ref().map(|nt| nested.btyp(nt));
+
         let optional = match tt.optional {
             None => None,
             Some(ast::TruePlusMinus::Plus | ast::TruePlusMinus::True) => Some(true),
@@ -268,6 +264,7 @@ impl Ctx<'_> {
             in_type,
             value_type,
             optional,
+            as_type,
         }))
     }
 
@@ -480,6 +477,8 @@ impl Ctx<'_> {
             }
 
             Type::Custom(Custom::WireSpec(spec)) => self.keyof(&spec.underlying),
+            Type::Custom(Custom::Decimal) => Type::Basic(Basic::Never),
+            Type::Function(_) => Type::Basic(Basic::Never),
         }
     }
 
@@ -502,6 +501,34 @@ impl Ctx<'_> {
                     Type::Basic(Basic::Never)
                 }
             }
+            ast::TsTypeQueryExpr::TsEntityName(qn @ ast::TsEntityName::TsQualifiedName(_)) => {
+                // Helper function to recursively resolve qualified names to their type
+                fn resolve_qualified_type(ctx: &Ctx, entity: &ast::TsEntityName) -> Type {
+                    match entity {
+                        ast::TsEntityName::Ident(ident) => {
+                            // Base case: simple identifier
+                            if let Some(obj) = ctx.ident_obj(ident) {
+                                ctx.obj_type(&obj)
+                            } else {
+                                HANDLER.with(|handler| {
+                                    handler.span_err(ident.span, "unknown identifier")
+                                });
+                                Type::Basic(Basic::Never)
+                            }
+                        }
+                        ast::TsEntityName::TsQualifiedName(qn) => {
+                            // resolve the left side first
+                            let base_type = resolve_qualified_type(ctx, &qn.left);
+
+                            // Then access the right side property on that type
+                            let prop = ast::MemberProp::Ident(qn.right.clone());
+                            ctx.resolve_member_prop(&base_type, &prop)
+                        }
+                    }
+                }
+
+                resolve_qualified_type(self, qn)
+            }
             _ => {
                 HANDLER.with(|handler| {
                     handler.span_err(typ.span, "typeof with non-ident not yet supported")
@@ -514,6 +541,7 @@ impl Ctx<'_> {
     fn type_lit(&self, type_lit: &ast::TsTypeLit) -> Type {
         let mut fields: Vec<InterfaceField> = Vec::with_capacity(type_lit.members.len());
         let mut index = None;
+        let mut call_signatures: Vec<(Vec<Type>, Box<Type>)> = Vec::new();
         for m in &type_lit.members {
             match m {
                 ast::TsTypeElement::TsPropertySignature(p) => {
@@ -579,13 +607,113 @@ impl Ctx<'_> {
                     index = Some((Box::new(key), Box::new(value)))
                 }
 
-                ast::TsTypeElement::TsMethodSignature(_)
-                | ast::TsTypeElement::TsCallSignatureDecl(_)
-                | ast::TsTypeElement::TsConstructSignatureDecl(_)
-                | ast::TsTypeElement::TsGetterSignature(_)
-                | ast::TsTypeElement::TsSetterSignature(_) => {
+                ast::TsTypeElement::TsMethodSignature(method) => {
+                    let name = match *method.key {
+                        ast::Expr::Ident(ref ident) => {
+                            FieldName::String(ident.sym.as_ref().to_string())
+                        }
+                        ast::Expr::Lit(ast::Lit::Str(ref str)) => {
+                            FieldName::String(str.value.to_string())
+                        }
+                        _ => {
+                            if method.computed {
+                                HANDLER.with(|handler| {
+                                    handler.span_err(
+                                        method.key.span(),
+                                        "computed method names not yet supported",
+                                    )
+                                });
+                            } else {
+                                HANDLER.with(|handler| {
+                                    handler.span_err(method.key.span(), "unsupported method key")
+                                });
+                            }
+                            continue;
+                        }
+                    };
+
+                    // Check for unsupported type parameters
+                    if let Some(type_params) = &method.type_params {
+                        HANDLER.with(|handler| {
+                            handler.span_err(
+                                type_params.span(),
+                                "generic methods are not yet supported in object type literals",
+                            )
+                        });
+                        continue;
+                    }
+
+                    // Parse function type
+                    let function_type = self.parse_method_signature(method);
+
+                    fields.push(InterfaceField {
+                        range: m.span().into(),
+                        name,
+                        typ: Type::Function(function_type),
+                        optional: method.optional,
+                    });
+                }
+                ast::TsTypeElement::TsCallSignatureDecl(call_sig) => {
+                    // Check for unsupported generic type parameters
+                    if let Some(type_params) = &call_sig.type_params {
+                        HANDLER.with(|handler| {
+                            handler.span_err(
+                                type_params.span,
+                                "generic call signatures are not yet supported",
+                            )
+                        });
+                        continue;
+                    }
+
+                    // Parse parameters
+                    let params = call_sig
+                        .params
+                        .iter()
+                        .filter_map(|param| {
+                            // Parse the parameter and extract just the type
+                            self.parse_function_param(param).map(|fp| fp.typ)
+                        })
+                        .collect::<Vec<_>>();
+
+                    // Parse return type
+                    let return_type = if let Some(type_ann) = &call_sig.type_ann {
+                        self.typ(&type_ann.type_ann)
+                    } else {
+                        HANDLER.with(|handler| {
+                            handler.span_err(
+                                call_sig.span,
+                                "call signature must have explicit return type annotation",
+                            )
+                        });
+                        Type::Basic(Basic::Never)
+                    };
+
+                    call_signatures.push((params, Box::new(return_type)));
+                }
+                ast::TsTypeElement::TsConstructSignatureDecl(_) => {
                     HANDLER.with(|handler| {
-                        handler.span_err(m.span(), &format!("unsupported: {type_lit:#?}"))
+                        handler.span_err(
+                            m.span(),
+                            "constructor signatures are not yet supported in object type literals",
+                        )
+                    });
+                    continue;
+                }
+                ast::TsTypeElement::TsGetterSignature(_) => {
+                    HANDLER.with(|handler| {
+                        handler.span_err(
+                            m.span(),
+                            "getter signatures are not yet supported in object type literals",
+                        )
+                    });
+                    continue;
+                }
+                ast::TsTypeElement::TsSetterSignature(_) => {
+                    HANDLER.with(|handler| {
+                        handler.span_err(
+                            m.span(),
+                            "setter signatures are not yet supported in object type literals",
+                        )
                     });
                     continue;
                 }
@@ -594,11 +722,232 @@ impl Ctx<'_> {
 
         Type::Interface(Interface {
             fields,
-
-            // TODO should these be set?
             index,
-            call: None,
+            call: if call_signatures.is_empty() {
+                None
+            } else {
+                Some(call_signatures)
+            },
         })
+    }
+
+    fn parse_method_signature(&self, method: &ast::TsMethodSignature) -> FunctionType {
+        if let Some(type_params) = &method.type_params {
+            HANDLER.with(|handler| {
+                handler.span_err(type_params.span, "generic methods are not yet supported")
+            });
+        }
+
+        // Parse parameters
+        let params = method
+            .params
+            .iter()
+            .filter_map(|param| self.parse_function_param(param))
+            .collect();
+
+        // Parse return type
+        let return_type = if let Some(type_ann) = &method.type_ann {
+            Box::new(self.typ(&type_ann.type_ann))
+        } else {
+            HANDLER.with(|handler| {
+                handler.span_err(
+                    method.span,
+                    "method must have explicit return type annotation (function body parsing not yet supported)",
+                )
+            });
+            Box::new(Type::Basic(Basic::Never))
+        };
+
+        FunctionType {
+            params,
+            return_type,
+            type_params: None,
+        }
+    }
+
+    fn parse_function(&self, func: &ast::Function) -> FunctionType {
+        if let Some(type_params) = &func.type_params {
+            HANDLER.with(|handler| {
+                handler.span_err(type_params.span, "generic functions are not yet supported")
+            });
+        }
+
+        // Parse parameters
+        let params = func
+            .params
+            .iter()
+            .filter_map(|param| match &param.pat {
+                ast::Pat::Ident(ident) => {
+                    let name = Some(ident.id.sym.as_ref().to_string());
+                    let optional = ident.id.optional;
+
+                    let typ = if let Some(type_ann) = &ident.type_ann {
+                        self.typ(&type_ann.type_ann)
+                    } else {
+                        Type::Basic(Basic::Any)
+                    };
+
+                    Some(FunctionParam {
+                        name,
+                        typ,
+                        optional,
+                        rest: false,
+                    })
+                }
+                ast::Pat::Array(array) => {
+                    let typ = if let Some(type_ann) = &array.type_ann {
+                        self.typ(&type_ann.type_ann)
+                    } else {
+                        Type::Basic(Basic::Any)
+                    };
+
+                    Some(FunctionParam {
+                        name: None,
+                        typ,
+                        optional: array.optional,
+                        rest: false,
+                    })
+                }
+                ast::Pat::Object(object) => {
+                    let typ = if let Some(type_ann) = &object.type_ann {
+                        self.typ(&type_ann.type_ann)
+                    } else {
+                        Type::Basic(Basic::Any)
+                    };
+
+                    Some(FunctionParam {
+                        name: None,
+                        typ,
+                        optional: object.optional,
+                        rest: false,
+                    })
+                }
+                ast::Pat::Rest(rest) => {
+                    let name = match rest.arg.as_ref() {
+                        ast::Pat::Ident(ident) => Some(ident.id.sym.as_ref().to_string()),
+                        _ => None,
+                    };
+
+                    let typ = if let Some(type_ann) = &rest.type_ann {
+                        self.typ(&type_ann.type_ann)
+                    } else {
+                        Type::Basic(Basic::Any)
+                    };
+
+                    Some(FunctionParam {
+                        name,
+                        typ,
+                        optional: false,
+                        rest: true,
+                    })
+                }
+                ast::Pat::Assign(_) | ast::Pat::Expr(_) | ast::Pat::Invalid(_) => {
+                    HANDLER.with(|handler| {
+                        handler.span_err(
+                            param.span(),
+                            "pattern not yet supported in function parameters",
+                        )
+                    });
+                    None
+                }
+            })
+            .collect();
+
+        // Parse return type
+        let return_type = if let Some(type_ann) = &func.return_type {
+            Box::new(self.typ(&type_ann.type_ann))
+        } else {
+            HANDLER.with(|handler| {
+                handler.span_err(
+                    func.span,
+                    "function must have explicit return type annotation (function body parsing not yet supported)",
+                )
+            });
+            Box::new(Type::Basic(Basic::Never))
+        };
+
+        FunctionType {
+            params,
+            return_type,
+            type_params: None,
+        }
+    }
+
+    fn parse_function_param(&self, param: &ast::TsFnParam) -> Option<FunctionParam> {
+        match param {
+            ast::TsFnParam::Ident(ident) => {
+                let name = Some(ident.id.sym.as_ref().to_string());
+                let optional = ident.id.optional;
+
+                let typ = if let Some(type_ann) = &ident.type_ann {
+                    self.typ(&type_ann.type_ann)
+                } else {
+                    Type::Basic(Basic::Any)
+                };
+
+                Some(FunctionParam {
+                    name,
+                    typ,
+                    optional,
+                    rest: false,
+                })
+            }
+
+            ast::TsFnParam::Rest(rest) => {
+                // Rest parameter: ...args: string[]
+                let name = match rest.arg.as_ref() {
+                    ast::Pat::Ident(ident) => Some(ident.id.sym.as_ref().to_string()),
+                    _ => None,
+                };
+
+                let typ = if let Some(type_ann) = &rest.type_ann {
+                    self.typ(&type_ann.type_ann)
+                } else {
+                    Type::Basic(Basic::Any)
+                };
+
+                Some(FunctionParam {
+                    name,
+                    typ,
+                    optional: false,
+                    rest: true,
+                })
+            }
+
+            ast::TsFnParam::Array(array) => {
+                // Destructured array parameter: [a, b]: [string, number]
+                // We extract the type but lose the destructuring structure
+                let typ = if let Some(type_ann) = &array.type_ann {
+                    self.typ(&type_ann.type_ann)
+                } else {
+                    Type::Basic(Basic::Any)
+                };
+
+                Some(FunctionParam {
+                    name: None, // No simple name for destructured param
+                    typ,
+                    optional: array.optional,
+                    rest: false,
+                })
+            }
+
+            ast::TsFnParam::Object(object) => {
+                // Destructured object parameter: {x, y}: {x: number, y: number}
+                // We extract the type but lose the destructuring structure
+                let typ = if let Some(type_ann) = &object.type_ann {
+                    self.typ(&type_ann.type_ann)
+                } else {
+                    Type::Basic(Basic::Any)
+                };
+
+                Some(FunctionParam {
+                    name: None, // No simple name for destructured param
+                    typ,
+                    optional: object.optional,
+                    rest: false,
+                })
+            }
+        }
     }
 
     /// Resolves literals.
@@ -706,16 +1055,23 @@ impl Ctx<'_> {
             return Type::Array(Array(Box::new(elem)));
         }
 
-        // Is this a reference to the "Header", "Query", or "Cookie" wire spec overrides?
+        // Is this a reference to the "Header", "Query", "Cookie", or "HttpStatus" wire spec overrides?
         if obj
             .name
             .as_ref()
-            .is_some_and(|s| s == "Header" || s == "Query" || s == "Cookie")
+            .is_some_and(|s| s == "Header" || s == "Query" || s == "Cookie" || s == "HttpStatus")
             && self.state.is_module_path(obj.module_id, "encore.dev/api")
         {
             if let Some(wire_spec) = self.parse_wire_spec(typ.span, &obj, &type_arguments) {
                 return Type::Custom(Custom::WireSpec(wire_spec));
             }
+        }
+
+        // Is this a encore Decimal?
+        if obj.name.as_ref().is_some_and(|s| s == "Decimal")
+            && self.state.is_module_path(obj.module_id, "encore.dev/types")
+        {
+            return Type::Custom(Custom::Decimal);
         }
 
         // Is this a reference to the "Attribute" pub/sub wire spec override?
@@ -813,11 +1169,9 @@ impl Ctx<'_> {
                 None
             }
             ObjectKind::Module(module) => {
-                if name == "default" {
-                    module.data.default_export.clone()
-                } else {
-                    module.data.named_exports.get(name).cloned()
-                }
+                module
+                    .data
+                    .get_named_export(self.state, &module.base.swc_file_path, name)
             }
             ObjectKind::Namespace(ns) => {
                 if name == "default" {
@@ -1072,8 +1426,19 @@ impl Ctx<'_> {
                 left.simplify_or_union(right)
             }
             ast::Expr::Call(expr) => {
-                HANDLER.with(|handler| handler.span_err(expr.span, "call expr not yet supported"));
-                Type::Basic(Basic::Never)
+                // Resolve the callee to get its type
+                let callee_type = match &expr.callee {
+                    ast::Callee::Expr(callee_expr) => self.expr(callee_expr),
+                    ast::Callee::Super(_) | ast::Callee::Import(_) => {
+                        HANDLER.with(|handler| {
+                            handler.span_err(expr.span, "super/import calls not yet supported")
+                        });
+                        return Type::Basic(Basic::Never);
+                    }
+                };
+
+                // Extract and return the function's return type
+                self.get_return_type(&callee_type, expr.span)
             }
             ast::Expr::New(expr) => {
                 // The type of a class instance is the same as the class itself.
@@ -1365,7 +1730,12 @@ impl Ctx<'_> {
             | Type::Generic(_)
             | Type::Class(_)
             | Type::Validation(_) => {
-                HANDLER.with(|handler| handler.span_err(prop.span(), "unsupported member on type"));
+                HANDLER.with(|handler| {
+                    handler.span_err(
+                        prop.span(),
+                        &format!("unsupported member on type {obj_type}"),
+                    )
+                });
                 Type::Basic(Basic::Never)
             }
             Type::Enum(tt) => {
@@ -1423,6 +1793,21 @@ impl Ctx<'_> {
             Type::Custom(Custom::WireSpec(spec)) => {
                 self.resolve_member_prop(&spec.underlying, prop)
             }
+            Type::Custom(Custom::Decimal) => {
+                // Decimal has no properties accessible
+                Type::Basic(Basic::Never)
+            }
+            Type::Function(_) => {
+                // Functions have methods like 'call', 'apply', 'bind'
+                // but we don't support accessing them yet
+                HANDLER.with(|handler| {
+                    handler.span_err(
+                        prop.span(),
+                        "member access on function type not yet supported",
+                    )
+                });
+                Type::Basic(Basic::Never)
+            }
         }
     }
 
@@ -1444,6 +1829,45 @@ impl Ctx<'_> {
 
                 HANDLER.with(|handler| handler.span_err(expr.span, "unsupported computed prop"));
                 Borrowed("")
+            }
+        }
+    }
+
+    /// Extracts the return type from a callable type.
+    fn get_return_type(&self, typ: &Type, span: Span) -> Type {
+        match typ {
+            Type::Function(func) => *func.return_type.clone(),
+            Type::Named(_) => {
+                let underlying = self.underlying(typ);
+                self.get_return_type(&underlying, span)
+            }
+            Type::Interface(iface) => {
+                if let Some(overloads) = &iface.call {
+                    if overloads.len() == 1 {
+                        let (_, return_type) = &overloads[0];
+                        *return_type.clone()
+                    } else {
+                        HANDLER.with(|handler| {
+                            handler.span_err(
+                                span,
+                                "cannot call interface with multiple overloaded signatures (overload resolution not yet implemented)",
+                            )
+                        });
+                        Type::Basic(Basic::Never)
+                    }
+                } else {
+                    HANDLER.with(|handler| {
+                        handler.span_err(span, "cannot call non-callable interface")
+                    });
+                    Type::Basic(Basic::Never)
+                }
+            }
+
+            _ => {
+                HANDLER.with(|handler| {
+                    handler.span_err(span, &format!("cannot call non-function type {typ}"))
+                });
+                Type::Basic(Basic::Never)
             }
         }
     }
@@ -1573,12 +1997,7 @@ impl Ctx<'_> {
                 }
             }
 
-            ObjectKind::Func(_o) => {
-                HANDLER.with(|handler| {
-                    handler.span_err(obj.range.to_span(), "function types not yet supported");
-                });
-                Type::Basic(Basic::Never)
-            }
+            ObjectKind::Func(o) => Type::Function(self.parse_function(&o.spec)),
 
             ObjectKind::Class(o) => {
                 let methods = o
@@ -1699,22 +2118,34 @@ impl Ctx<'_> {
                     .index
                     .as_ref()
                     .map(|(key, val)| (self.concrete(key), self.concrete(val)));
-                let call = iface
-                    .call
-                    .as_ref()
-                    .map(|(params, ret)| (self.concrete_list(params), self.concrete_list(ret)));
+                let call = iface.call.as_ref().map(|overloads| {
+                    overloads
+                        .iter()
+                        .map(|(params, ret)| (self.concrete_list(params), self.concrete(ret)))
+                        .collect::<Vec<_>>()
+                });
 
                 // If we have any parts that aren't Same, we need to make the whole thing New.
                 // Otherwise return the original type.
+                let call_changed = call.as_ref().is_some_and(|overloads| {
+                    overloads
+                        .iter()
+                        .any(|(params, ret)| !matches!(params, Same(_)) || !matches!(ret, Same(_)))
+                });
                 if !matches!(fields, Same(_))
-                    || !matches!(index, Some((Same(_), _) | (_, Same(_))))
-                    || !matches!(call, Some((Same(_), _) | (_, Same(_))))
+                    || !matches!(index, Some((Same(_), Same(_))))
+                    || call_changed
                 {
                     New(Type::Interface(Interface {
                         fields: fields.into_owned(),
                         index: index
                             .map(|(k, v)| (Box::new(k.into_owned()), Box::new(v.into_owned()))),
-                        call: call.map(|(p, r)| (p.into_owned(), r.into_owned())),
+                        call: call.map(|overloads| {
+                            overloads
+                                .into_iter()
+                                .map(|(p, r)| (p.into_owned(), Box::new(r.into_owned())))
+                                .collect()
+                        }),
                     }))
                 } else {
                     Same(typ)
@@ -1860,20 +2291,30 @@ impl Ctx<'_> {
 
                     let keys = self.underlying(&mapped.in_type).into_owned();
                     for key in keys.into_iter_unions() {
-                        let value = self
-                            .clone()
-                            .with_mapped_key_type(Some(&key))
-                            .concrete(&mapped.value_type)
-                            .into_owned();
+                        let ctx_with_key = self.clone().with_mapped_key_type(Some(&key));
+
+                        let value = ctx_with_key.concrete(&mapped.value_type).into_owned();
 
                         // If the value resolves to 'never' it should be skipped.
                         if let Type::Basic(Basic::Never) = &value {
                             continue;
                         }
 
-                        // Get the underlying key type if it's named.
+                        // Evaluate the as_type to get the transformed key, if present.
+                        let transformed_key = if let Some(as_type) = &mapped.as_type {
+                            let concrete = ctx_with_key.concrete(as_type).into_owned();
+                            // Get the underlying type if it's a Named type
+                            ctx_with_key.underlying(&concrete).into_owned()
+                        } else {
+                            key.clone()
+                        };
 
-                        match key {
+                        // If the transformed key is 'never', skip this property (filtering).
+                        if let Type::Basic(Basic::Never) = &transformed_key {
+                            continue;
+                        }
+
+                        match transformed_key {
                             // Never means the field should be excluded.
                             Type::Basic(Basic::Never) => {
                                 HANDLER.with(|handler| {
@@ -1889,6 +2330,10 @@ impl Ctx<'_> {
                                         self.concrete(&mapped.value_type).into_owned(),
                                     ),
                                     optional: mapped.optional,
+                                    as_type: mapped
+                                        .as_type
+                                        .as_ref()
+                                        .map(|at| Box::new(self.concrete(at).into_owned())),
                                 })))
                             }
 
@@ -1981,6 +2426,51 @@ impl Ctx<'_> {
                 }))),
                 Same(_) => Same(typ),
             },
+            Type::Custom(Custom::Decimal) => Same(typ), // Decimal is already concrete
+            Type::Function(func) => {
+                // Concretize parameter types
+                let params_resolved = func
+                    .params
+                    .iter()
+                    .map(|p| match self.concrete(&p.typ) {
+                        New(t) => (
+                            true,
+                            FunctionParam {
+                                name: p.name.clone(),
+                                typ: t,
+                                optional: p.optional,
+                                rest: p.rest,
+                            },
+                        ),
+                        Changed(t) => (
+                            true,
+                            FunctionParam {
+                                name: p.name.clone(),
+                                typ: t.clone(),
+                                optional: p.optional,
+                                rest: p.rest,
+                            },
+                        ),
+                        Same(_) => (false, p.clone()),
+                    })
+                    .collect::<Vec<_>>();
+
+                let return_resolved = self.concrete(&func.return_type);
+
+                // Check if anything changed
+                let params_changed = params_resolved.iter().any(|(changed, _)| *changed);
+                let return_changed = !matches!(return_resolved, Same(_));
+
+                if params_changed || return_changed {
+                    New(Type::Function(FunctionType {
+                        params: params_resolved.into_iter().map(|(_, p)| p).collect(),
+                        return_type: Box::new(return_resolved.into_owned()),
+                        type_params: func.type_params.clone(),
+                    }))
+                } else {
+                    Same(typ)
+                }
+            }
         }
     }
 
@@ -2178,6 +2668,7 @@ impl Ctx<'_> {
             Some("Query") => WireLocation::Query,
             Some("Attribute") => WireLocation::PubSubAttr,
             Some("Cookie") => WireLocation::Cookie,
+            Some("HttpStatus") => WireLocation::HttpStatus,
             _ => return None,
         };
 
@@ -2189,22 +2680,34 @@ impl Ctx<'_> {
             None
         }
 
-        let (underlying, name_override) = match (type_args.first(), type_args.get(1)) {
-            (None, None) => (Type::Basic(Basic::String), None),
+        let (underlying, name_override) = match &location {
+            WireLocation::HttpStatus => {
+                // HttpStatus doesn't take generic parameters and should have no type args
+                if !type_args.is_empty() {
+                    span.err("HttpStatus doesn't take generic type parameters");
+                    return None;
+                }
+                (Type::Basic(Basic::Number), None)
+            }
+            _ => {
+                match (type_args.first(), type_args.get(1)) {
+                    (None, None) => (Type::Basic(Basic::String), None),
 
-            (Some(first), None) => {
-                // If we only have a single argument, check its type.
-                // If it's a string literal it's the name, otherwise it's the type.
-                match first {
-                    Type::Literal(Literal::String(lit)) => {
-                        (Type::Basic(Basic::String), Some(lit.to_string()))
+                    (Some(first), None) => {
+                        // If we only have a single argument, check its type.
+                        // If it's a string literal it's the name, otherwise it's the type.
+                        match first {
+                            Type::Literal(Literal::String(lit)) => {
+                                (Type::Basic(Basic::String), Some(lit.to_string()))
+                            }
+                            _ => (first.clone(), None),
+                        }
                     }
-                    _ => (first.clone(), None),
+
+                    (Some(typ), Some(name)) => (typ.clone(), str_lit(span, name)),
+                    (None, Some(_)) => unreachable!(),
                 }
             }
-
-            (Some(typ), Some(name)) => (typ.clone(), str_lit(span, name)),
-            (None, Some(_)) => unreachable!(),
         };
 
         Some(WireSpec {

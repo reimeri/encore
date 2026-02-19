@@ -19,7 +19,7 @@ use crate::api::{
 use crate::encore::parser::meta::v1 as meta;
 use crate::encore::runtime::v1 as runtime;
 use crate::trace::Tracer;
-use crate::{api, model, pubsub, secrets, EncoreName, EndpointName, Hosted};
+use crate::{api, metrics, model, pubsub, secrets, EncoreName, EndpointName, Hosted};
 
 use super::encore_routes::healthz;
 use super::websocket_client::WebSocketClient;
@@ -42,7 +42,8 @@ pub struct ManagerConfig<'a> {
     pub pubsub_push_registry: pubsub::PushHandlerRegistry,
     pub runtime: tokio::runtime::Handle,
     pub testing: bool,
-    pub proxied_push_subs: HashMap<String, EncoreName>,
+    pub proxied_push_subs: HashMap<String, super::gateway::ProxiedPushSub>,
+    pub metrics: &'a metrics::Manager,
 }
 
 pub struct Manager {
@@ -57,6 +58,7 @@ pub struct Manager {
 
     gateways: HashMap<EncoreName, Gateway>,
     testing: bool,
+    metrics: metrics::Manager,
 }
 
 impl ManagerConfig<'_> {
@@ -164,6 +166,7 @@ impl ManagerConfig<'_> {
                 &service_registry,
                 self.http_client.clone(),
                 self.tracer.clone(),
+                self.metrics.registry(),
             )
             .context("unable to build authenticator")?;
 
@@ -187,6 +190,7 @@ impl ManagerConfig<'_> {
                     healthz_handler.clone(),
                     own_api_address,
                     self.proxied_push_subs.clone(),
+                    self.tracer.clone(),
                 )
                 .context("couldn't create gateway")?,
             );
@@ -200,6 +204,7 @@ impl ManagerConfig<'_> {
                 inbound_svc_auth,
                 self.tracer.clone(),
                 auth_data_schemas,
+                Arc::clone(self.metrics.registry()),
             )
             .context("unable to create API server")?;
             Some(server)
@@ -217,6 +222,7 @@ impl ManagerConfig<'_> {
             runtime: self.runtime,
             healthz: healthz_handler,
             testing: self.testing,
+            metrics: self.metrics.clone(),
         })
     }
 }
@@ -245,6 +251,7 @@ fn build_auth_handler(
     service_registry: &ServiceRegistry,
     http_client: reqwest::Client,
     tracer: Tracer,
+    metrics_registry: &Arc<metrics::Registry>,
 ) -> anyhow::Result<Option<auth::Authenticator>> {
     let Some(explicit) = &gw.explicit else {
         return Ok(None);
@@ -265,6 +272,7 @@ fn build_auth_handler(
             supports_query: true,
             supports_header: true,
             supports_path: false,
+            supports_http_status: false,
         };
 
         cfg.compute(auth_params)
@@ -282,6 +290,8 @@ fn build_auth_handler(
     // let is_local = hosted_services.contains(&explicit.service_name);
     let is_local = true;
     let name = EndpointName::new(explicit.service_name.clone(), auth.name.clone());
+    let requests_total =
+        metrics::requests_total_counter(metrics_registry, &explicit.service_name, &auth.name);
 
     let auth_data = registry.schema(auth_data_schema_idx);
     let auth_handler = if is_local {
@@ -293,13 +303,14 @@ fn build_auth_handler(
                 schema,
                 handler: Default::default(),
                 tracer,
+                requests_total,
             },
         )?
     } else {
         auth::Authenticator::remote(
             schema,
             auth_data.clone(),
-            RemoteAuthHandler::new(name, service_registry, http_client, auth_data)?,
+            RemoteAuthHandler::new(name, service_registry, http_client, auth_data, tracer)?,
         )?
     };
 
@@ -327,6 +338,10 @@ impl Manager {
 
     pub fn endpoints(&self) -> &api::EndpointMap {
         self.service_registry.endpoints()
+    }
+
+    pub fn metrics_registry(&self) -> &Arc<metrics::Registry> {
+        self.metrics.registry()
     }
 
     pub fn stream(

@@ -220,8 +220,38 @@ export namespace svc {
          * This generic type complicates the whole thing 🙈
          */
         Dave: A
+
+        /**
+         * An optional generic type
+         */
+        optional?: A | null
     }
 
+    /**
+     * DocumentedOrder represents a customer order with references
+     */
+    export interface DocumentedOrder {
+        /**
+         * Customer who placed this order (different from shipping recipient)
+         */
+        customer: DocumentedUser
+
+        "order_id": string
+        "opt_ref"?: DocumentedUser | null
+        "req_ref": DocumentedUser
+    }
+
+    /**
+     * DocumentedUser represents a user in the system with profile information
+     */
+    export interface DocumentedUser {
+        name: string
+        email: string
+    }
+
+    /**
+     * Foo represents a documented integer type
+     */
     export type Foo = number
 
     export interface GetRequest {
@@ -241,12 +271,15 @@ export namespace svc {
         Json: JSONValue
         UUID: string
         UserID: string
+        Optional?: string | null
     }
 
     export interface Recursive {
         Optional?: Recursive
         Slice: Recursive[]
+        SliceOfOptional: (Recursive | null)[]
         Map: { [key: string]: Recursive }
+        MapOfOptional: { [key: string]: Recursive | null }
     }
 
     export interface Request {
@@ -295,6 +328,7 @@ export namespace svc {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.CreateDocumentedOrder = this.CreateDocumentedOrder.bind(this)
             this.DummyAPI = this.DummyAPI.bind(this)
             this.FallbackPath = this.FallbackPath.bind(this)
             this.Get = this.Get.bind(this)
@@ -307,6 +341,12 @@ export namespace svc {
             this.TupleInputOutput = this.TupleInputOutput.bind(this)
             this.Webhook = this.Webhook.bind(this)
             this.Webhook2 = this.Webhook2.bind(this)
+        }
+
+        public async CreateDocumentedOrder(params: DocumentedOrder): Promise<DocumentedOrder> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/svc.CreateDocumentedOrder`, JSON.stringify(params))
+            return await resp.json() as DocumentedOrder
         }
 
         /**
@@ -354,9 +394,10 @@ export namespace svc {
             })
 
             const query = makeRecord<string, string | string[]>({
-                Bob:  params.B.map((v) => String(v)),
-                c:    String(params["Charlies-Bool"]),
-                dave: String(params.Dave),
+                Bob:      params.B.map((v) => String(v)),
+                c:        String(params["Charlies-Bool"]),
+                dave:     String(params.Dave),
+                optional: params.optional === undefined ? undefined : String(params.optional),
             })
 
             // Now make the actual call to the API
@@ -373,21 +414,23 @@ export namespace svc {
             rtn.Json = JSON.parse(mustBeSet("Header `x-json`", resp.headers.get("x-json")))
             rtn.UUID = mustBeSet("Header `x-uuid`", resp.headers.get("x-uuid"))
             rtn.UserID = mustBeSet("Header `x-user-id`", resp.headers.get("x-user-id"))
+            rtn.Optional = mustBeSet("Header `x-optional`", resp.headers.get("x-optional"))
             return rtn
         }
 
         public async HeaderOnlyRequest(params: HeaderOnlyStruct): Promise<void> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
-                "x-boolean": String(params.Boolean),
-                "x-bytes":   String(params.Bytes),
-                "x-float":   String(params.Float),
-                "x-int":     String(params.Int),
-                "x-json":    JSON.stringify(params.Json),
-                "x-string":  params.String,
-                "x-time":    String(params.Time),
-                "x-user-id": String(params.UserID),
-                "x-uuid":    String(params.UUID),
+                "x-boolean":  String(params.Boolean),
+                "x-bytes":    String(params.Bytes),
+                "x-float":    String(params.Float),
+                "x-int":      String(params.Int),
+                "x-json":     JSON.stringify(params.Json),
+                "x-optional": params.Optional === undefined ? undefined : String(params.Optional),
+                "x-string":   params.String,
+                "x-time":     String(params.Time),
+                "x-user-id":  String(params.UserID),
+                "x-uuid":     String(params.UUID),
             })
 
             await this.baseClient.callTypedAPI("GET", `/svc.HeaderOnlyRequest`, undefined, {headers})
@@ -423,6 +466,7 @@ export namespace svc {
             const body: Record<string, any> = {
                 "Charlies-Bool": params["Charlies-Bool"],
                 Dave:            params.Dave,
+                optional:        params.optional,
             }
 
             // Now make the actual call to the API

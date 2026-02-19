@@ -14,10 +14,11 @@ Using Encore.go to declare infrastructure in application code helps unlock sever
 - **Unified codebase**: One codebase for all environments; local, preview, and cloud.
 - **Cloud-agnostic by default**: Encore.go provides an abstraction layer on top of the cloud provider's APIs, so you avoid becoming locked in to a single cloud.
 - **Evolve infrastructure without code changes**: As requirements evolve, you can change the provisioned infrastructure without making code changes, you only need to change the infrastructure configuration which is separate from the application code.
+- **AI-assisted development**: Encore is built for AI coding assistants. With [Encore-specific rules and MCP integration](/docs/go/ai-integration), AI understands your architecture and can generate type-safe, pattern-consistent code and introspect your app—services, APIs, databases, and traces.
 
 ## No DevOps experience required
 
-Encore provides open source tools to help you integrate with your cloud infrastructure, enabling you to self-host your application anywhere to supports Docker containers.
+Encore provides open source tools to help you integrate with your cloud infrastructure, enabling you to self-host your application anywhere that supports Docker containers.
 Learn more in the [self-host documentation](/docs/go/self-host/docker-build).
 
 You can also use [Encore Cloud](https://encore.dev/use-cases/devops-automation), which fully automates provisioning and managing infrastructure in your own cloud on AWS and GCP.

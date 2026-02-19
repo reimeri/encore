@@ -83,6 +83,12 @@ func TestParser_ParseType(t *testing.T) {
 			want:    BuiltinType{Kind: UUID, AST: ast.NewIdent("uuid.UUID")},
 		},
 		{
+			name:    "encore_option",
+			imports: []string{"encore.dev/types/option", "encore.dev/types/uuid"},
+			typ:     "option.Option[uuid.UUID]",
+			want:    OptionType{AST: ast.NewIdent("option.Option"), Value: BuiltinType{Kind: UUID, AST: ast.NewIdent("uuid.UUID")}},
+		},
+		{
 			name:    "builtin_encore_userid",
 			imports: []string{"encore.dev/beta/auth"},
 			typ:     "auth.UID",
@@ -216,7 +222,7 @@ func TestParser_ParseType(t *testing.T) {
 		return testutil.ParseTxtar(`
 -- go.mod --
 module example.com
-require encore.dev v1.13.4
+require encore.dev v1.52.0
 -- code.go --
 package foo
 ` + imports + `
@@ -345,7 +351,7 @@ func TestParser_ParseFuncDecl(t *testing.T) {
 		return testutil.ParseTxtar(`
 -- go.mod --
 module example.com
-require encore.dev v1.13.4
+require encore.dev v1.52.0
 -- code.go --
 package foo
 ` + imports + `

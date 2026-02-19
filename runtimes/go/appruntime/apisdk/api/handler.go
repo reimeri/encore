@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"reflect"
 	"strconv"
 	"sync"
 
+	"encore.dev/appruntime/exported/scrub"
 	jsoniter "github.com/json-iterator/go"
 
 	encore "encore.dev"
@@ -91,7 +93,7 @@ type Desc[Req, Resp any] struct {
 	AppHandler func(context.Context, Req) (Resp, error)
 	RawHandler func(http.ResponseWriter, *http.Request)
 
-	EncodeResp func(http.ResponseWriter, jsoniter.API, Resp) error
+	EncodeResp func(http.ResponseWriter, jsoniter.API, Resp, int) error
 	CloneResp  func(Resp) (Resp, error)
 
 	// EncodeExternalReq encodes a request, writing the payload to the stream
@@ -108,6 +110,11 @@ type Desc[Req, Resp any] struct {
 	// ServiceMiddleware is the ordered list of middleware to invoke before
 	// calling the API handler.
 	ServiceMiddleware []*Middleware
+
+	ScrubRequestPaths    []scrub.Path
+	ScrubRequestHeaders  map[string]bool
+	ScrubResponsePaths   []scrub.Path
+	ScrubResponseHeaders map[string]bool
 
 	rpcDescOnce   sync.Once
 	cachedRPCDesc *model.RPCDesc
@@ -171,7 +178,7 @@ func (d *Desc[Req, Resp]) Handle(c IncomingContext) {
 
 		c.w.Header().Set("Content-Type", "application/json")
 		c.w.Header().Set("X-Content-Type-Options", "nosniff")
-		resp.Err = d.EncodeResp(c.w, c.server.json, respData)
+		resp.Err = d.EncodeResp(c.w, c.server.json, respData, resp.HTTPStatus)
 	}
 	c.server.finishRequest(resp)
 }
@@ -263,7 +270,7 @@ func (d *Desc[Req, Resp]) begin(c IncomingContext) (reqData Req, beginErr error)
 			NonRawPayload:        nonRawPayload,
 			UserID:               c.auth.UID,
 			AuthData:             c.auth.UserData,
-			RequestHeaders:       c.req.Header,
+			RequestHeaders:       headersWithHost(c.req),
 			FromEncorePlatform:   platformauth.IsEncorePlatformRequest(c.req.Context()),
 			ServiceToServiceCall: c.callMeta.IsServiceToService(),
 		},
@@ -813,7 +820,7 @@ func (d *Desc[Req, Resp]) externalCall(c CallContext, service config.Service, re
 		}
 		defer func() { _ = httpResp.Body.Close() }()
 
-		if httpResp.StatusCode != http.StatusOK {
+		if httpResp.StatusCode >= 400 {
 			return resp, unmarshalErrorResponse(httpResp)
 		}
 
@@ -859,6 +866,21 @@ func unmarshalErrorResponse(httpResp *http.Response) error {
 	}
 }
 
+// headersWithHost clones the request headers and adds the Host header from req.Host.
+// This is needed because Go stores the Host header in req.Host, not in req.Header.
+func headersWithHost(req *http.Request) http.Header {
+	var headers http.Header
+	if req.Header != nil {
+		headers = maps.Clone(req.Header)
+	} else {
+		headers = make(http.Header)
+	}
+	if req.Host != "" {
+		headers.Set("Host", req.Host)
+	}
+	return headers
+}
+
 // validate validates the request, and returns a validation error on failure.
 // If the user payload does not implement Validator, it returns nil.
 func (d *Desc[Req, Resp]) validate(req Req) error {
@@ -886,12 +908,19 @@ func (d *Desc[Req, Resp]) rpcDesc() *model.RPCDesc {
 	d.rpcDescOnce.Do(func() {
 		var reqTyp Req
 		desc := &model.RPCDesc{
-			Service:     d.Service,
-			SvcNum:      d.SvcNum,
-			Endpoint:    d.Endpoint,
-			Raw:         d.Raw,
-			RequestType: reflect.TypeOf(reqTyp),
-			Tags:        d.Tags,
+			Service:      d.Service,
+			SvcNum:       d.SvcNum,
+			Endpoint:     d.Endpoint,
+			Raw:          d.Raw,
+			RequestType:  reflect.TypeOf(reqTyp),
+			Tags:         d.Tags,
+			Exposed:      d.Access == Public || d.Access == RequiresAuth,
+			AuthRequired: d.Access == RequiresAuth,
+
+			ScrubRequestPaths:    d.ScrubRequestPaths,
+			ScrubResponsePaths:   d.ScrubResponsePaths,
+			ScrubRequestHeaders:  d.ScrubRequestHeaders,
+			ScrubResponseHeaders: d.ScrubResponseHeaders,
 		}
 
 		if !isVoid[Resp]() {
