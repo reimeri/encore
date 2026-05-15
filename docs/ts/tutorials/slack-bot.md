@@ -15,6 +15,8 @@ This is the end result:
    <Editor projectName="slackBotTS" />
 </div>
 
+<DeployButton slug="ts-slack-bot" title="Deploy to Encore" description="Deploy this app to a free development environment." />
+
 <Callout type="info">
 
 To make it easier to follow along, we've laid out a trail of croissants to guide your way.

@@ -1,7 +1,7 @@
 ---
-seotitle: Encore MCP Server
-seodesc: Encore's Model Context Protocol (MCP) server provides deep introspection of your application to AI development tools.
-title: MCP Server
+seotitle: Encore Local MCP Server
+seodesc: Encore's Local Model Context Protocol (MCP) server provides deep introspection of your application to AI development tools.
+title: Local MCP Server
 subtitle: The Model Context Provider (MCP) exposes tools that provide application context to LLMs.
 lang: go
 ---
@@ -28,14 +28,14 @@ Copy the appropriate URL or command to your MCP host's configuration, and you're
 
 In order to add the Encore MCP server to Cursor, the fastest way is via the button below (make sure to update `your-app-id` in the configuration to your actual Encore app ID).
 
-<a href="https://cursor.com/en/install-mcp?name=encore-mcp&config=eyJjb21tYW5kIjoiZW5jb3JlIG1jcCBydW4gLS1hcHA9eW91ci1hcHAtaWQifQ%3D%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Add encore-mcp MCP server to Cursor" height="32" class="noshadow" /></a>
+<a href="https://cursor.com/en/install-mcp?name=encore-local&config=eyJjb21tYW5kIjoiZW5jb3JlIG1jcCBydW4gLS1hcHA9eW91ci1hcHAtaWQifQ%3D%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Add encore-local MCP server to Cursor" height="32" class="noshadow" /></a>
 
 If you prefer to configure it manually, create the file `.cursor/mcp.json` with the following settings:
 
 ```json
 {
     "mcpServers": {
-        "encore-mcp": {
+        "encore-local": {
             "command": "encore",
             "args": ["mcp", "run", "--app=your-app-id"]
         }

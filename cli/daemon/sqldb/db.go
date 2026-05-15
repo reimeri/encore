@@ -17,10 +17,21 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 
+	"encr.dev/cli/daemon/internal/debugflags"
 	"encr.dev/pkg/fns"
 	"encr.dev/pkg/option"
 	meta "encr.dev/proto/encore/parser/meta/v1"
 )
+
+// migratorRoles returns the role precedence to use when running migrations
+// or creating databases. ENCOREDEBUG=sqldbrole=legacy reverts to the
+// pre-migrator-role behavior of running migrations as the admin role.
+func migratorRoles() []RoleType {
+	if debugflags.Get("sqldbrole") == debugflags.SQLDBRoleLegacy {
+		return []RoleType{RoleAdmin, RoleSuperuser}
+	}
+	return []RoleType{RoleMigrator, RoleAdmin, RoleSuperuser}
+}
 
 // DB represents a single database instance within a cluster.
 type DB struct {
@@ -153,7 +164,7 @@ func (db *DB) doCreate(ctx context.Context, cloudName string, template option.Op
 	// Does it already exist?
 	var dummy int
 	err = adm.QueryRow(ctx, "SELECT 1 FROM pg_database WHERE datname = $1", cloudName).Scan(&dummy)
-	owner, ok := db.Cluster.Roles.First(RoleAdmin, RoleSuperuser)
+	owner, ok := db.Cluster.Roles.First(migratorRoles()...)
 	if !ok {
 		return errors.New("unable to find admin or superuser roles")
 	}
@@ -192,17 +203,25 @@ func (db *DB) renameDB(ctx context.Context, from, to string) error {
 }
 
 // ensureRoles ensures the roles have been granted access to this database.
+//
+// Cluster-wide role memberships (GRANT pg_read_all_data, encore_services, etc.)
+// are applied once in Cluster.setupRoles. This function handles only the
+// database-local statements, but still serializes on Cluster.rolesMu because
+// REASSIGN OWNED and GRANT ... ON DATABASE touch role rows in pg_authid and
+// can deadlock when run concurrently across databases in the same cluster.
 func (db *DB) ensureRoles(ctx context.Context, cloudName string, roles ...Role) error {
-	adm, err := db.connectSuperuser(ctx)
+	adm, err := db.connectToDB(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = adm.Close(context.Background()) }()
+	defer func() { _ = adm.Close() }()
+
+	db.Cluster.rolesMu.Lock()
+	defer db.Cluster.rolesMu.Unlock()
 
 	db.log.Debug().Msg("revoking public access")
 	safeDBName := (pgx.Identifier{cloudName}).Sanitize()
-	_, err = adm.Exec(ctx, "REVOKE ALL ON DATABASE "+safeDBName+" FROM public")
-	if err != nil {
+	if _, err := adm.ExecContext(ctx, "REVOKE ALL ON DATABASE "+safeDBName+" FROM public"); err != nil {
 		return fmt.Errorf("revoke public: %v", err)
 	}
 
@@ -213,39 +232,26 @@ func (db *DB) ensureRoles(ctx context.Context, cloudName string, roles ...Role) 
 		case RoleSuperuser:
 			// Already granted; nothing to do
 			continue
+		case RoleService:
+			// Only cluster-wide memberships; nothing to do per-database.
+			continue
+		case RoleServices, RoleMigrator:
+			stmt = fmt.Sprintf(`GRANT ALL ON DATABASE %s TO %s;`, safeDBName, safeRoleName)
 		case RoleAdmin:
-			stmt = fmt.Sprintf("GRANT ALL ON DATABASE %s TO %s;", safeDBName, safeRoleName)
-		case RoleWrite:
 			stmt = fmt.Sprintf(`
-				GRANT TEMP, CONNECT ON DATABASE %s TO %s;
-				GRANT pg_read_all_data TO %s;
-				GRANT pg_write_all_data TO %s;
-			`, safeDBName, safeRoleName, safeRoleName, safeRoleName)
-		case RoleRead:
-			stmt = fmt.Sprintf(`
-				GRANT TEMP, CONNECT ON DATABASE %s TO %s;
-				GRANT pg_read_all_data TO %s;
-			`, safeDBName, safeRoleName, safeRoleName)
+				GRANT ALL ON DATABASE %[1]s TO %[2]s;
+				REASSIGN OWNED BY %[2]s TO "encore-migrator"`,
+				safeDBName, safeRoleName)
+		case RoleWrite, RoleRead:
+			stmt = fmt.Sprintf(`GRANT TEMP, CONNECT ON DATABASE %s TO %s;`, safeDBName, safeRoleName)
 		default:
 			return fmt.Errorf("unknown role type %q", role.Type)
 		}
 
 		db.log.Debug().Str("role", role.Username).Str("db", cloudName).Msg("granting access to role")
 
-		// We've observed race conditions in Postgres to grant access. Retry a few times.
-		{
-			var err error
-			for i := 0; i < 5; i++ {
-				_, err = adm.Exec(ctx, stmt)
-				if err == nil {
-					break
-				}
-				db.log.Debug().Str("role", role.Username).Str("db", cloudName).Err(err).Msg("error granting role, retrying")
-				time.Sleep(250 * time.Millisecond)
-			}
-			if err != nil {
-				return fmt.Errorf("grant %s role %s: %v", role.Type, role.Username, err)
-			}
+		if _, err := adm.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("grant %s role %s: %v", role.Type, role.Username, err)
 		}
 
 		db.log.Debug().Str("role", role.Username).Str("db", cloudName).Msg("successfully granted access")
@@ -281,7 +287,7 @@ func (db *DB) doMigrate(ctx context.Context, cloudName, appRoot string, dbMeta *
 		return errors.New("cluster not running")
 	}
 
-	admin, ok := info.Encore.First(RoleAdmin, RoleSuperuser)
+	admin, ok := info.Encore.First(migratorRoles()...)
 	if !ok {
 		return errors.New("unable to find superuser or admin roles")
 	}

@@ -13,6 +13,12 @@ export interface ImportedResponse {
   message: string;
 }
 
+-- svc/encore.service.ts --
+import { Service } from "encore.dev/service";
+
+// Svc is a service for testing the client generator.
+export default new Service("svc");
+
 -- svc/svc.ts --
 import { Header, Query, api, Gateway, Cookie } from "encore.dev/api";
 import { authHandler } from "encore.dev/auth";
@@ -22,11 +28,14 @@ interface UnusedType {
   foo: Foo;
 }
 
+// Root is a basic POST endpoint.
 export const root = api(
   { expose: true, method: "POST", path: "/" },
   async (req: Request) => { },
 );
 
+// Imported tests the usage of imported types
+// and this comment is also multiline.
 export const imported = api(
   { expose: true, method: "POST", path: "/imported" },
   async (req: ImportedRequest) : Promise<ImportedResponse> => { },
@@ -60,6 +69,16 @@ export const cookieDummy = api(
   async (req: Request): Promise<{ cookie: Cookie<'cookie'> }> => { return { cookie: { value: "value" } } },
 );
 
+export const singleSetCookie = api(
+  { expose: true, method: "POST", path: "/single-set-cookie" },
+  async (): Promise<{ message: string, token: Header<'set-cookie'> }> => { return { message: "ok", token: "session=abc" } },
+);
+
+export const multiSetCookie = api(
+  { expose: true, method: "POST", path: "/multi-set-cookie" },
+  async (): Promise<{ message: string, tokens: Header<string[], 'set-cookie'> }> => { return { message: "ok", tokens: ["a=1", "b=2"] } },
+);
+
 export interface AuthParams {
   cookie?: Header<'Cookie'>
   token?: Header<'x-api-token'>
@@ -80,6 +99,7 @@ export const gw = new Gateway({
   authHandler: auth,
 })
 
+// Request is the request type for testing doc comments on interfaces.
 interface Request {
   // Foo is good
   foo?: number;
@@ -88,6 +108,7 @@ interface Request {
 
   queryFoo?: Query<boolean, "foo">;
   queryBar?: Query<"bar">;
+  queryList?: Query<boolean[], "list">
   headerBaz?: Header<"baz">;
   headerNum?: Header<number, "num">;
   cookieQux?: Cookie<"qux">;

@@ -273,7 +273,7 @@ func (x DumpMetaRequest_Format) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DumpMetaRequest_Format.Descriptor instead.
 func (DumpMetaRequest_Format) EnumDescriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{32, 0}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{41, 0}
 }
 
 type CommandMessage struct {
@@ -649,8 +649,12 @@ type RunRequest struct {
 	LogLevel *string `protobuf:"bytes,12,opt,name=log_level,json=logLevel,proto3,oneof" json:"log_level,omitempty"`
 	// scrub_sensitive_data, if true, scrubs sensitive data from local traces.
 	ScrubSensitiveData bool `protobuf:"varint,13,opt,name=scrub_sensitive_data,json=scrubSensitiveData,proto3" json:"scrub_sensitive_data,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// non_interactive, if true, signals that the CLI is not connected to an
+	// interactive terminal. The build progress UI is rendered as plain
+	// one-line-per-event output instead of the spinner.
+	NonInteractive bool `protobuf:"varint,14,opt,name=non_interactive,json=nonInteractive,proto3" json:"non_interactive,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RunRequest) Reset() {
@@ -760,6 +764,476 @@ func (x *RunRequest) GetScrubSensitiveData() bool {
 	return false
 }
 
+func (x *RunRequest) GetNonInteractive() bool {
+	if x != nil {
+		return x.NonInteractive
+	}
+	return false
+}
+
+type RunSpecRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// app_root is the absolute filesystem path to the Encore app root.
+	AppRoot string `protobuf:"bytes,1,opt,name=app_root,json=appRoot,proto3" json:"app_root,omitempty"`
+	// working_dir is the working directory relative to the app_root,
+	// for formatting relative paths in error messages.
+	WorkingDir string `protobuf:"bytes,2,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	// environ is the environment to set for the running app,
+	// each entry in "KEY=VALUE" format.
+	Environ []string `protobuf:"bytes,3,rep,name=environ,proto3" json:"environ,omitempty"`
+	// commands is the ordered list of spec commands to execute against the app.
+	Commands []*SpecCommand `protobuf:"bytes,4,rep,name=commands,proto3" json:"commands,omitempty"`
+	// ready_timeout_seconds is the budget for waiting on /__encore/healthz.
+	// If <= 0, the daemon picks a sensible default.
+	ReadyTimeoutSeconds int32 `protobuf:"varint,5,opt,name=ready_timeout_seconds,json=readyTimeoutSeconds,proto3" json:"ready_timeout_seconds,omitempty"`
+	// namespace is the infrastructure namespace to use.
+	// If empty the active namespace is used.
+	Namespace     *string `protobuf:"bytes,6,opt,name=namespace,proto3,oneof" json:"namespace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunSpecRequest) Reset() {
+	*x = RunSpecRequest{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunSpecRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunSpecRequest) ProtoMessage() {}
+
+func (x *RunSpecRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunSpecRequest.ProtoReflect.Descriptor instead.
+func (*RunSpecRequest) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *RunSpecRequest) GetAppRoot() string {
+	if x != nil {
+		return x.AppRoot
+	}
+	return ""
+}
+
+func (x *RunSpecRequest) GetWorkingDir() string {
+	if x != nil {
+		return x.WorkingDir
+	}
+	return ""
+}
+
+func (x *RunSpecRequest) GetEnviron() []string {
+	if x != nil {
+		return x.Environ
+	}
+	return nil
+}
+
+func (x *RunSpecRequest) GetCommands() []*SpecCommand {
+	if x != nil {
+		return x.Commands
+	}
+	return nil
+}
+
+func (x *RunSpecRequest) GetReadyTimeoutSeconds() int32 {
+	if x != nil {
+		return x.ReadyTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *RunSpecRequest) GetNamespace() string {
+	if x != nil && x.Namespace != nil {
+		return *x.Namespace
+	}
+	return ""
+}
+
+type SpecCommand struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Cmd:
+	//
+	//	*SpecCommand_Curl
+	Cmd           isSpecCommand_Cmd `protobuf_oneof:"cmd"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpecCommand) Reset() {
+	*x = SpecCommand{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpecCommand) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpecCommand) ProtoMessage() {}
+
+func (x *SpecCommand) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpecCommand.ProtoReflect.Descriptor instead.
+func (*SpecCommand) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SpecCommand) GetCmd() isSpecCommand_Cmd {
+	if x != nil {
+		return x.Cmd
+	}
+	return nil
+}
+
+func (x *SpecCommand) GetCurl() *CurlCommand {
+	if x != nil {
+		if x, ok := x.Cmd.(*SpecCommand_Curl); ok {
+			return x.Curl
+		}
+	}
+	return nil
+}
+
+type isSpecCommand_Cmd interface {
+	isSpecCommand_Cmd()
+}
+
+type SpecCommand_Curl struct {
+	Curl *CurlCommand `protobuf:"bytes,1,opt,name=curl,proto3,oneof"`
+}
+
+func (*SpecCommand_Curl) isSpecCommand_Cmd() {}
+
+type CurlCommand struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path must start with "/" and is appended to http://<bound-addr> by the daemon.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// args are extra flags passed verbatim to the curl subprocess.
+	Args          []string `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CurlCommand) Reset() {
+	*x = CurlCommand{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CurlCommand) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CurlCommand) ProtoMessage() {}
+
+func (x *CurlCommand) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CurlCommand.ProtoReflect.Descriptor instead.
+func (*CurlCommand) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *CurlCommand) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *CurlCommand) GetArgs() []string {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
+type RunSpecMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Msg:
+	//
+	//	*RunSpecMessage_Output
+	//	*RunSpecMessage_Result
+	//	*RunSpecMessage_Complete
+	Msg           isRunSpecMessage_Msg `protobuf_oneof:"msg"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunSpecMessage) Reset() {
+	*x = RunSpecMessage{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunSpecMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunSpecMessage) ProtoMessage() {}
+
+func (x *RunSpecMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunSpecMessage.ProtoReflect.Descriptor instead.
+func (*RunSpecMessage) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *RunSpecMessage) GetMsg() isRunSpecMessage_Msg {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *RunSpecMessage) GetOutput() *CommandOutput {
+	if x != nil {
+		if x, ok := x.Msg.(*RunSpecMessage_Output); ok {
+			return x.Output
+		}
+	}
+	return nil
+}
+
+func (x *RunSpecMessage) GetResult() *SpecCommandResult {
+	if x != nil {
+		if x, ok := x.Msg.(*RunSpecMessage_Result); ok {
+			return x.Result
+		}
+	}
+	return nil
+}
+
+func (x *RunSpecMessage) GetComplete() *SpecComplete {
+	if x != nil {
+		if x, ok := x.Msg.(*RunSpecMessage_Complete); ok {
+			return x.Complete
+		}
+	}
+	return nil
+}
+
+type isRunSpecMessage_Msg interface {
+	isRunSpecMessage_Msg()
+}
+
+type RunSpecMessage_Output struct {
+	// output forwards stdout/stderr from the app or daemon (compile noise,
+	// runtime logs). Clients should render this on stderr.
+	Output *CommandOutput `protobuf:"bytes,1,opt,name=output,proto3,oneof"`
+}
+
+type RunSpecMessage_Result struct {
+	// result is one finished spec command.
+	Result *SpecCommandResult `protobuf:"bytes,2,opt,name=result,proto3,oneof"`
+}
+
+type RunSpecMessage_Complete struct {
+	// complete is the terminal message for the stream.
+	Complete *SpecComplete `protobuf:"bytes,3,opt,name=complete,proto3,oneof"`
+}
+
+func (*RunSpecMessage_Output) isRunSpecMessage_Msg() {}
+
+func (*RunSpecMessage_Result) isRunSpecMessage_Msg() {}
+
+func (*RunSpecMessage_Complete) isRunSpecMessage_Msg() {}
+
+type SpecCommandResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Index         int32                  `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"` // 1-based
+	Total         int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	Display       string                 `protobuf:"bytes,3,opt,name=display,proto3" json:"display,omitempty"` // human-readable, e.g. "curl /api/foo -i"
+	Stdout        []byte                 `protobuf:"bytes,4,opt,name=stdout,proto3" json:"stdout,omitempty"`
+	Stderr        []byte                 `protobuf:"bytes,5,opt,name=stderr,proto3" json:"stderr,omitempty"`
+	ExitCode      int32                  `protobuf:"varint,6,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpecCommandResult) Reset() {
+	*x = SpecCommandResult{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpecCommandResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpecCommandResult) ProtoMessage() {}
+
+func (x *SpecCommandResult) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpecCommandResult.ProtoReflect.Descriptor instead.
+func (*SpecCommandResult) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SpecCommandResult) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *SpecCommandResult) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *SpecCommandResult) GetDisplay() string {
+	if x != nil {
+		return x.Display
+	}
+	return ""
+}
+
+func (x *SpecCommandResult) GetStdout() []byte {
+	if x != nil {
+		return x.Stdout
+	}
+	return nil
+}
+
+func (x *SpecCommandResult) GetStderr() []byte {
+	if x != nil {
+		return x.Stderr
+	}
+	return nil
+}
+
+func (x *SpecCommandResult) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
+type SpecComplete struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Succeeded int32                  `protobuf:"varint,1,opt,name=succeeded,proto3" json:"succeeded,omitempty"`
+	Total     int32                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	// error, if non-empty, indicates the run never reached the command-running
+	// phase (compile failure, healthz timeout, etc.). When set, succeeded/total
+	// reflect commands that did execute (typically zero).
+	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpecComplete) Reset() {
+	*x = SpecComplete{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpecComplete) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpecComplete) ProtoMessage() {}
+
+func (x *SpecComplete) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpecComplete.ProtoReflect.Descriptor instead.
+func (*SpecComplete) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SpecComplete) GetSucceeded() int32 {
+	if x != nil {
+		return x.Succeeded
+	}
+	return 0
+}
+
+func (x *SpecComplete) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *SpecComplete) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 type TestRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	AppRoot    string                 `protobuf:"bytes,1,opt,name=app_root,json=appRoot,proto3" json:"app_root,omitempty"`
@@ -782,7 +1256,7 @@ type TestRequest struct {
 
 func (x *TestRequest) Reset() {
 	*x = TestRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[7]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -794,7 +1268,7 @@ func (x *TestRequest) String() string {
 func (*TestRequest) ProtoMessage() {}
 
 func (x *TestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[7]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -807,7 +1281,7 @@ func (x *TestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRequest.ProtoReflect.Descriptor instead.
 func (*TestRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{7}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TestRequest) GetAppRoot() string {
@@ -876,7 +1350,7 @@ type TestSpecRequest struct {
 
 func (x *TestSpecRequest) Reset() {
 	*x = TestSpecRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[8]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -888,7 +1362,7 @@ func (x *TestSpecRequest) String() string {
 func (*TestSpecRequest) ProtoMessage() {}
 
 func (x *TestSpecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[8]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -901,7 +1375,7 @@ func (x *TestSpecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestSpecRequest.ProtoReflect.Descriptor instead.
 func (*TestSpecRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{8}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TestSpecRequest) GetAppRoot() string {
@@ -950,7 +1424,7 @@ type TestSpecResponse struct {
 
 func (x *TestSpecResponse) Reset() {
 	*x = TestSpecResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[9]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -962,7 +1436,7 @@ func (x *TestSpecResponse) String() string {
 func (*TestSpecResponse) ProtoMessage() {}
 
 func (x *TestSpecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[9]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -975,7 +1449,7 @@ func (x *TestSpecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestSpecResponse.ProtoReflect.Descriptor instead.
 func (*TestSpecResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{9}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TestSpecResponse) GetCommand() string {
@@ -1012,14 +1486,17 @@ type ExecScriptRequest struct {
 	TraceFile *string `protobuf:"bytes,6,opt,name=trace_file,json=traceFile,proto3,oneof" json:"trace_file,omitempty"`
 	// namespace is the infrastructure namespace to use.
 	// If empty the active namespace is used.
-	Namespace     *string `protobuf:"bytes,7,opt,name=namespace,proto3,oneof" json:"namespace,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Namespace *string `protobuf:"bytes,7,opt,name=namespace,proto3,oneof" json:"namespace,omitempty"`
+	// non_interactive, if true, signals that the CLI is not connected to an
+	// interactive terminal. See RunRequest.non_interactive for details.
+	NonInteractive bool `protobuf:"varint,8,opt,name=non_interactive,json=nonInteractive,proto3" json:"non_interactive,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ExecScriptRequest) Reset() {
 	*x = ExecScriptRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[10]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1031,7 +1508,7 @@ func (x *ExecScriptRequest) String() string {
 func (*ExecScriptRequest) ProtoMessage() {}
 
 func (x *ExecScriptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[10]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1044,7 +1521,7 @@ func (x *ExecScriptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecScriptRequest.ProtoReflect.Descriptor instead.
 func (*ExecScriptRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{10}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ExecScriptRequest) GetAppRoot() string {
@@ -1089,6 +1566,255 @@ func (x *ExecScriptRequest) GetNamespace() string {
 	return ""
 }
 
+func (x *ExecScriptRequest) GetNonInteractive() bool {
+	if x != nil {
+		return x.NonInteractive
+	}
+	return false
+}
+
+type ExecSpecRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	AppRoot    string                 `protobuf:"bytes,1,opt,name=app_root,json=appRoot,proto3" json:"app_root,omitempty"`
+	WorkingDir string                 `protobuf:"bytes,2,opt,name=working_dir,json=workingDir,proto3" json:"working_dir,omitempty"`
+	ScriptArgs []string               `protobuf:"bytes,4,rep,name=script_args,json=scriptArgs,proto3" json:"script_args,omitempty"`
+	// environ is the environment to set for the running command.
+	// Each entry is a string in the format "KEY=VALUE", identical to os.Environ().
+	Environ []string `protobuf:"bytes,5,rep,name=environ,proto3" json:"environ,omitempty"`
+	// namespace is the infrastructure namespace to use.
+	// If empty the active namespace is used.
+	Namespace *string `protobuf:"bytes,7,opt,name=namespace,proto3,oneof" json:"namespace,omitempty"`
+	// temp_dir is a temp dir that will be cleaned up by the CLI after the command
+	// has been executed, to write things like app meta and runtime config etc.
+	TempDir string `protobuf:"bytes,8,opt,name=temp_dir,json=tempDir,proto3" json:"temp_dir,omitempty"`
+	// non_interactive, if true, signals that the CLI is not connected to an
+	// interactive terminal. See RunRequest.non_interactive for details.
+	NonInteractive bool `protobuf:"varint,9,opt,name=non_interactive,json=nonInteractive,proto3" json:"non_interactive,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ExecSpecRequest) Reset() {
+	*x = ExecSpecRequest{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecSpecRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecSpecRequest) ProtoMessage() {}
+
+func (x *ExecSpecRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecSpecRequest.ProtoReflect.Descriptor instead.
+func (*ExecSpecRequest) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ExecSpecRequest) GetAppRoot() string {
+	if x != nil {
+		return x.AppRoot
+	}
+	return ""
+}
+
+func (x *ExecSpecRequest) GetWorkingDir() string {
+	if x != nil {
+		return x.WorkingDir
+	}
+	return ""
+}
+
+func (x *ExecSpecRequest) GetScriptArgs() []string {
+	if x != nil {
+		return x.ScriptArgs
+	}
+	return nil
+}
+
+func (x *ExecSpecRequest) GetEnviron() []string {
+	if x != nil {
+		return x.Environ
+	}
+	return nil
+}
+
+func (x *ExecSpecRequest) GetNamespace() string {
+	if x != nil && x.Namespace != nil {
+		return *x.Namespace
+	}
+	return ""
+}
+
+func (x *ExecSpecRequest) GetTempDir() string {
+	if x != nil {
+		return x.TempDir
+	}
+	return ""
+}
+
+func (x *ExecSpecRequest) GetNonInteractive() bool {
+	if x != nil {
+		return x.NonInteractive
+	}
+	return false
+}
+
+type ExecSpecMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Msg:
+	//
+	//	*ExecSpecMessage_Output
+	//	*ExecSpecMessage_Spec
+	Msg           isExecSpecMessage_Msg `protobuf_oneof:"msg"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecSpecMessage) Reset() {
+	*x = ExecSpecMessage{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecSpecMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecSpecMessage) ProtoMessage() {}
+
+func (x *ExecSpecMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecSpecMessage.ProtoReflect.Descriptor instead.
+func (*ExecSpecMessage) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ExecSpecMessage) GetMsg() isExecSpecMessage_Msg {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *ExecSpecMessage) GetOutput() *CommandOutput {
+	if x != nil {
+		if x, ok := x.Msg.(*ExecSpecMessage_Output); ok {
+			return x.Output
+		}
+	}
+	return nil
+}
+
+func (x *ExecSpecMessage) GetSpec() *ExecSpecResponse {
+	if x != nil {
+		if x, ok := x.Msg.(*ExecSpecMessage_Spec); ok {
+			return x.Spec
+		}
+	}
+	return nil
+}
+
+type isExecSpecMessage_Msg interface {
+	isExecSpecMessage_Msg()
+}
+
+type ExecSpecMessage_Output struct {
+	Output *CommandOutput `protobuf:"bytes,1,opt,name=output,proto3,oneof"`
+}
+
+type ExecSpecMessage_Spec struct {
+	Spec *ExecSpecResponse `protobuf:"bytes,2,opt,name=spec,proto3,oneof"`
+}
+
+func (*ExecSpecMessage_Output) isExecSpecMessage_Msg() {}
+
+func (*ExecSpecMessage_Spec) isExecSpecMessage_Msg() {}
+
+type ExecSpecResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Command       string                 `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	Args          []string               `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	Environ       []string               `protobuf:"bytes,3,rep,name=environ,proto3" json:"environ,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecSpecResponse) Reset() {
+	*x = ExecSpecResponse{}
+	mi := &file_encore_daemon_daemon_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecSpecResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecSpecResponse) ProtoMessage() {}
+
+func (x *ExecSpecResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_encore_daemon_daemon_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecSpecResponse.ProtoReflect.Descriptor instead.
+func (*ExecSpecResponse) Descriptor() ([]byte, []int) {
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ExecSpecResponse) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *ExecSpecResponse) GetArgs() []string {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
+func (x *ExecSpecResponse) GetEnviron() []string {
+	if x != nil {
+		return x.Environ
+	}
+	return nil
+}
+
 type CheckRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	AppRoot    string                 `protobuf:"bytes,1,opt,name=app_root,json=appRoot,proto3" json:"app_root,omitempty"`
@@ -1106,7 +1832,7 @@ type CheckRequest struct {
 
 func (x *CheckRequest) Reset() {
 	*x = CheckRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[11]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1118,7 +1844,7 @@ func (x *CheckRequest) String() string {
 func (*CheckRequest) ProtoMessage() {}
 
 func (x *CheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[11]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1131,7 +1857,7 @@ func (x *CheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckRequest.ProtoReflect.Descriptor instead.
 func (*CheckRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{11}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CheckRequest) GetAppRoot() string {
@@ -1199,7 +1925,7 @@ type ExportRequest struct {
 
 func (x *ExportRequest) Reset() {
 	*x = ExportRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[12]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1211,7 +1937,7 @@ func (x *ExportRequest) String() string {
 func (*ExportRequest) ProtoMessage() {}
 
 func (x *ExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[12]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1224,7 +1950,7 @@ func (x *ExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportRequest.ProtoReflect.Descriptor instead.
 func (*ExportRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{12}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ExportRequest) GetAppRoot() string {
@@ -1342,7 +2068,7 @@ type DockerExportParams struct {
 
 func (x *DockerExportParams) Reset() {
 	*x = DockerExportParams{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[13]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1354,7 +2080,7 @@ func (x *DockerExportParams) String() string {
 func (*DockerExportParams) ProtoMessage() {}
 
 func (x *DockerExportParams) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[13]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1367,7 +2093,7 @@ func (x *DockerExportParams) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DockerExportParams.ProtoReflect.Descriptor instead.
 func (*DockerExportParams) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{13}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DockerExportParams) GetLocalDaemonTag() string {
@@ -1407,7 +2133,7 @@ type DBConnectRequest struct {
 
 func (x *DBConnectRequest) Reset() {
 	*x = DBConnectRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[14]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1419,7 +2145,7 @@ func (x *DBConnectRequest) String() string {
 func (*DBConnectRequest) ProtoMessage() {}
 
 func (x *DBConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[14]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1432,7 +2158,7 @@ func (x *DBConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DBConnectRequest.ProtoReflect.Descriptor instead.
 func (*DBConnectRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{14}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DBConnectRequest) GetAppRoot() string {
@@ -1486,7 +2212,7 @@ type DBConnectResponse struct {
 
 func (x *DBConnectResponse) Reset() {
 	*x = DBConnectResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[15]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1498,7 +2224,7 @@ func (x *DBConnectResponse) String() string {
 func (*DBConnectResponse) ProtoMessage() {}
 
 func (x *DBConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[15]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1511,7 +2237,7 @@ func (x *DBConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DBConnectResponse.ProtoReflect.Descriptor instead.
 func (*DBConnectResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{15}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DBConnectResponse) GetDsn() string {
@@ -1537,7 +2263,7 @@ type DBProxyRequest struct {
 
 func (x *DBProxyRequest) Reset() {
 	*x = DBProxyRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[16]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1549,7 +2275,7 @@ func (x *DBProxyRequest) String() string {
 func (*DBProxyRequest) ProtoMessage() {}
 
 func (x *DBProxyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[16]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1562,7 +2288,7 @@ func (x *DBProxyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DBProxyRequest.ProtoReflect.Descriptor instead.
 func (*DBProxyRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{16}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *DBProxyRequest) GetAppRoot() string {
@@ -1621,7 +2347,7 @@ type DBResetRequest struct {
 
 func (x *DBResetRequest) Reset() {
 	*x = DBResetRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[17]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1633,7 +2359,7 @@ func (x *DBResetRequest) String() string {
 func (*DBResetRequest) ProtoMessage() {}
 
 func (x *DBResetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[17]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1646,7 +2372,7 @@ func (x *DBResetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DBResetRequest.ProtoReflect.Descriptor instead.
 func (*DBResetRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{17}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *DBResetRequest) GetAppRoot() string {
@@ -1708,13 +2434,16 @@ type GenClientRequest struct {
 	// an instantiated client with the given target. The target can be e.g.
 	// a variable, e.g. "import.meta.env.VITE_CLIENT_TARGET" or a string literal.
 	TsClientTarget *string `protobuf:"bytes,11,opt,name=ts_client_target,json=tsClientTarget,proto3,oneof" json:"ts_client_target,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The root directory of the app to generate a client for.
+	// Included to be able to handle multi clone scenarios.
+	AppRoot       string `protobuf:"bytes,12,opt,name=app_root,json=appRoot,proto3" json:"app_root,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GenClientRequest) Reset() {
 	*x = GenClientRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[18]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1726,7 +2455,7 @@ func (x *GenClientRequest) String() string {
 func (*GenClientRequest) ProtoMessage() {}
 
 func (x *GenClientRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[18]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1739,7 +2468,7 @@ func (x *GenClientRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenClientRequest.ProtoReflect.Descriptor instead.
 func (*GenClientRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{18}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GenClientRequest) GetAppId() string {
@@ -1819,6 +2548,13 @@ func (x *GenClientRequest) GetTsClientTarget() string {
 	return ""
 }
 
+func (x *GenClientRequest) GetAppRoot() string {
+	if x != nil {
+		return x.AppRoot
+	}
+	return ""
+}
+
 type GenClientResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Code          []byte                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
@@ -1828,7 +2564,7 @@ type GenClientResponse struct {
 
 func (x *GenClientResponse) Reset() {
 	*x = GenClientResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[19]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1840,7 +2576,7 @@ func (x *GenClientResponse) String() string {
 func (*GenClientResponse) ProtoMessage() {}
 
 func (x *GenClientResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[19]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1853,7 +2589,7 @@ func (x *GenClientResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenClientResponse.ProtoReflect.Descriptor instead.
 func (*GenClientResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{19}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GenClientResponse) GetCode() []byte {
@@ -1872,7 +2608,7 @@ type GenWrappersRequest struct {
 
 func (x *GenWrappersRequest) Reset() {
 	*x = GenWrappersRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[20]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1884,7 +2620,7 @@ func (x *GenWrappersRequest) String() string {
 func (*GenWrappersRequest) ProtoMessage() {}
 
 func (x *GenWrappersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[20]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1897,7 +2633,7 @@ func (x *GenWrappersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenWrappersRequest.ProtoReflect.Descriptor instead.
 func (*GenWrappersRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{20}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GenWrappersRequest) GetAppRoot() string {
@@ -1915,7 +2651,7 @@ type GenWrappersResponse struct {
 
 func (x *GenWrappersResponse) Reset() {
 	*x = GenWrappersResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[21]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1927,7 +2663,7 @@ func (x *GenWrappersResponse) String() string {
 func (*GenWrappersResponse) ProtoMessage() {}
 
 func (x *GenWrappersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[21]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1940,7 +2676,7 @@ func (x *GenWrappersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenWrappersResponse.ProtoReflect.Descriptor instead.
 func (*GenWrappersResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{21}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{30}
 }
 
 type SecretsRefreshRequest struct {
@@ -1954,7 +2690,7 @@ type SecretsRefreshRequest struct {
 
 func (x *SecretsRefreshRequest) Reset() {
 	*x = SecretsRefreshRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[22]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1966,7 +2702,7 @@ func (x *SecretsRefreshRequest) String() string {
 func (*SecretsRefreshRequest) ProtoMessage() {}
 
 func (x *SecretsRefreshRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[22]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1979,7 +2715,7 @@ func (x *SecretsRefreshRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretsRefreshRequest.ProtoReflect.Descriptor instead.
 func (*SecretsRefreshRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{22}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SecretsRefreshRequest) GetAppRoot() string {
@@ -2011,7 +2747,7 @@ type SecretsRefreshResponse struct {
 
 func (x *SecretsRefreshResponse) Reset() {
 	*x = SecretsRefreshResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[23]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2023,7 +2759,7 @@ func (x *SecretsRefreshResponse) String() string {
 func (*SecretsRefreshResponse) ProtoMessage() {}
 
 func (x *SecretsRefreshResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[23]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2036,7 +2772,7 @@ func (x *SecretsRefreshResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecretsRefreshResponse.ProtoReflect.Descriptor instead.
 func (*SecretsRefreshResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{23}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{32}
 }
 
 type VersionResponse struct {
@@ -2049,7 +2785,7 @@ type VersionResponse struct {
 
 func (x *VersionResponse) Reset() {
 	*x = VersionResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[24]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2061,7 +2797,7 @@ func (x *VersionResponse) String() string {
 func (*VersionResponse) ProtoMessage() {}
 
 func (x *VersionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[24]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2074,7 +2810,7 @@ func (x *VersionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VersionResponse.ProtoReflect.Descriptor instead.
 func (*VersionResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{24}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *VersionResponse) GetVersion() string {
@@ -2104,7 +2840,7 @@ type Namespace struct {
 
 func (x *Namespace) Reset() {
 	*x = Namespace{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[25]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2116,7 +2852,7 @@ func (x *Namespace) String() string {
 func (*Namespace) ProtoMessage() {}
 
 func (x *Namespace) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[25]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2129,7 +2865,7 @@ func (x *Namespace) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Namespace.ProtoReflect.Descriptor instead.
 func (*Namespace) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{25}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *Namespace) GetId() string {
@@ -2177,7 +2913,7 @@ type CreateNamespaceRequest struct {
 
 func (x *CreateNamespaceRequest) Reset() {
 	*x = CreateNamespaceRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[26]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2189,7 +2925,7 @@ func (x *CreateNamespaceRequest) String() string {
 func (*CreateNamespaceRequest) ProtoMessage() {}
 
 func (x *CreateNamespaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[26]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2202,7 +2938,7 @@ func (x *CreateNamespaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateNamespaceRequest.ProtoReflect.Descriptor instead.
 func (*CreateNamespaceRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{26}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CreateNamespaceRequest) GetAppRoot() string {
@@ -2230,7 +2966,7 @@ type SwitchNamespaceRequest struct {
 
 func (x *SwitchNamespaceRequest) Reset() {
 	*x = SwitchNamespaceRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[27]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2242,7 +2978,7 @@ func (x *SwitchNamespaceRequest) String() string {
 func (*SwitchNamespaceRequest) ProtoMessage() {}
 
 func (x *SwitchNamespaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[27]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2255,7 +2991,7 @@ func (x *SwitchNamespaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SwitchNamespaceRequest.ProtoReflect.Descriptor instead.
 func (*SwitchNamespaceRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{27}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SwitchNamespaceRequest) GetAppRoot() string {
@@ -2288,7 +3024,7 @@ type ListNamespacesRequest struct {
 
 func (x *ListNamespacesRequest) Reset() {
 	*x = ListNamespacesRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[28]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2300,7 +3036,7 @@ func (x *ListNamespacesRequest) String() string {
 func (*ListNamespacesRequest) ProtoMessage() {}
 
 func (x *ListNamespacesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[28]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2313,7 +3049,7 @@ func (x *ListNamespacesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNamespacesRequest.ProtoReflect.Descriptor instead.
 func (*ListNamespacesRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{28}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ListNamespacesRequest) GetAppRoot() string {
@@ -2333,7 +3069,7 @@ type DeleteNamespaceRequest struct {
 
 func (x *DeleteNamespaceRequest) Reset() {
 	*x = DeleteNamespaceRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[29]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2345,7 +3081,7 @@ func (x *DeleteNamespaceRequest) String() string {
 func (*DeleteNamespaceRequest) ProtoMessage() {}
 
 func (x *DeleteNamespaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[29]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2358,7 +3094,7 @@ func (x *DeleteNamespaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNamespaceRequest.ProtoReflect.Descriptor instead.
 func (*DeleteNamespaceRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{29}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *DeleteNamespaceRequest) GetAppRoot() string {
@@ -2384,7 +3120,7 @@ type ListNamespacesResponse struct {
 
 func (x *ListNamespacesResponse) Reset() {
 	*x = ListNamespacesResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[30]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2396,7 +3132,7 @@ func (x *ListNamespacesResponse) String() string {
 func (*ListNamespacesResponse) ProtoMessage() {}
 
 func (x *ListNamespacesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[30]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2409,7 +3145,7 @@ func (x *ListNamespacesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNamespacesResponse.ProtoReflect.Descriptor instead.
 func (*ListNamespacesResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{30}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ListNamespacesResponse) GetNamespaces() []*Namespace {
@@ -2430,7 +3166,7 @@ type TelemetryConfig struct {
 
 func (x *TelemetryConfig) Reset() {
 	*x = TelemetryConfig{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[31]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2442,7 +3178,7 @@ func (x *TelemetryConfig) String() string {
 func (*TelemetryConfig) ProtoMessage() {}
 
 func (x *TelemetryConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[31]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2455,7 +3191,7 @@ func (x *TelemetryConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryConfig.ProtoReflect.Descriptor instead.
 func (*TelemetryConfig) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{31}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *TelemetryConfig) GetAnonId() string {
@@ -2495,7 +3231,7 @@ type DumpMetaRequest struct {
 
 func (x *DumpMetaRequest) Reset() {
 	*x = DumpMetaRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[32]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2507,7 +3243,7 @@ func (x *DumpMetaRequest) String() string {
 func (*DumpMetaRequest) ProtoMessage() {}
 
 func (x *DumpMetaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[32]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2520,7 +3256,7 @@ func (x *DumpMetaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DumpMetaRequest.ProtoReflect.Descriptor instead.
 func (*DumpMetaRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{32}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *DumpMetaRequest) GetAppRoot() string {
@@ -2567,7 +3303,7 @@ type DumpMetaResponse struct {
 
 func (x *DumpMetaResponse) Reset() {
 	*x = DumpMetaResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[33]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2579,7 +3315,7 @@ func (x *DumpMetaResponse) String() string {
 func (*DumpMetaResponse) ProtoMessage() {}
 
 func (x *DumpMetaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[33]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2592,7 +3328,7 @@ func (x *DumpMetaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DumpMetaResponse.ProtoReflect.Descriptor instead.
 func (*DumpMetaResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{33}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *DumpMetaResponse) GetMeta() []byte {
@@ -2611,7 +3347,7 @@ type SQLCPlugin struct {
 
 func (x *SQLCPlugin) Reset() {
 	*x = SQLCPlugin{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[34]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2623,7 +3359,7 @@ func (x *SQLCPlugin) String() string {
 func (*SQLCPlugin) ProtoMessage() {}
 
 func (x *SQLCPlugin) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[34]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2636,7 +3372,7 @@ func (x *SQLCPlugin) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43}
 }
 
 type SQLCPlugin_File struct {
@@ -2649,7 +3385,7 @@ type SQLCPlugin_File struct {
 
 func (x *SQLCPlugin_File) Reset() {
 	*x = SQLCPlugin_File{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[35]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2661,7 +3397,7 @@ func (x *SQLCPlugin_File) String() string {
 func (*SQLCPlugin_File) ProtoMessage() {}
 
 func (x *SQLCPlugin_File) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[35]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2674,7 +3410,7 @@ func (x *SQLCPlugin_File) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_File.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_File) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 0}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 0}
 }
 
 func (x *SQLCPlugin_File) GetName() string {
@@ -2704,7 +3440,7 @@ type SQLCPlugin_Settings struct {
 
 func (x *SQLCPlugin_Settings) Reset() {
 	*x = SQLCPlugin_Settings{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[36]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2716,7 +3452,7 @@ func (x *SQLCPlugin_Settings) String() string {
 func (*SQLCPlugin_Settings) ProtoMessage() {}
 
 func (x *SQLCPlugin_Settings) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[36]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2729,7 +3465,7 @@ func (x *SQLCPlugin_Settings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Settings.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Settings) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 1}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 1}
 }
 
 func (x *SQLCPlugin_Settings) GetVersion() string {
@@ -2781,7 +3517,7 @@ type SQLCPlugin_Codegen struct {
 
 func (x *SQLCPlugin_Codegen) Reset() {
 	*x = SQLCPlugin_Codegen{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[37]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2793,7 +3529,7 @@ func (x *SQLCPlugin_Codegen) String() string {
 func (*SQLCPlugin_Codegen) ProtoMessage() {}
 
 func (x *SQLCPlugin_Codegen) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[37]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2806,7 +3542,7 @@ func (x *SQLCPlugin_Codegen) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Codegen.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Codegen) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 2}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 2}
 }
 
 func (x *SQLCPlugin_Codegen) GetOut() string {
@@ -2863,7 +3599,7 @@ type SQLCPlugin_Catalog struct {
 
 func (x *SQLCPlugin_Catalog) Reset() {
 	*x = SQLCPlugin_Catalog{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[38]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2875,7 +3611,7 @@ func (x *SQLCPlugin_Catalog) String() string {
 func (*SQLCPlugin_Catalog) ProtoMessage() {}
 
 func (x *SQLCPlugin_Catalog) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[38]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2888,7 +3624,7 @@ func (x *SQLCPlugin_Catalog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Catalog.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Catalog) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 3}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 3}
 }
 
 func (x *SQLCPlugin_Catalog) GetComment() string {
@@ -2932,7 +3668,7 @@ type SQLCPlugin_Schema struct {
 
 func (x *SQLCPlugin_Schema) Reset() {
 	*x = SQLCPlugin_Schema{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[39]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2944,7 +3680,7 @@ func (x *SQLCPlugin_Schema) String() string {
 func (*SQLCPlugin_Schema) ProtoMessage() {}
 
 func (x *SQLCPlugin_Schema) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[39]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2957,7 +3693,7 @@ func (x *SQLCPlugin_Schema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Schema.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Schema) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 4}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 4}
 }
 
 func (x *SQLCPlugin_Schema) GetComment() string {
@@ -3005,7 +3741,7 @@ type SQLCPlugin_CompositeType struct {
 
 func (x *SQLCPlugin_CompositeType) Reset() {
 	*x = SQLCPlugin_CompositeType{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[40]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3017,7 +3753,7 @@ func (x *SQLCPlugin_CompositeType) String() string {
 func (*SQLCPlugin_CompositeType) ProtoMessage() {}
 
 func (x *SQLCPlugin_CompositeType) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[40]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3030,7 +3766,7 @@ func (x *SQLCPlugin_CompositeType) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_CompositeType.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_CompositeType) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 5}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 5}
 }
 
 func (x *SQLCPlugin_CompositeType) GetName() string {
@@ -3058,7 +3794,7 @@ type SQLCPlugin_Enum struct {
 
 func (x *SQLCPlugin_Enum) Reset() {
 	*x = SQLCPlugin_Enum{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[41]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3070,7 +3806,7 @@ func (x *SQLCPlugin_Enum) String() string {
 func (*SQLCPlugin_Enum) ProtoMessage() {}
 
 func (x *SQLCPlugin_Enum) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[41]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3083,7 +3819,7 @@ func (x *SQLCPlugin_Enum) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Enum.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Enum) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 6}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 6}
 }
 
 func (x *SQLCPlugin_Enum) GetName() string {
@@ -3118,7 +3854,7 @@ type SQLCPlugin_Table struct {
 
 func (x *SQLCPlugin_Table) Reset() {
 	*x = SQLCPlugin_Table{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[42]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3130,7 +3866,7 @@ func (x *SQLCPlugin_Table) String() string {
 func (*SQLCPlugin_Table) ProtoMessage() {}
 
 func (x *SQLCPlugin_Table) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[42]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3143,7 +3879,7 @@ func (x *SQLCPlugin_Table) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Table.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Table) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 7}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 7}
 }
 
 func (x *SQLCPlugin_Table) GetRel() *SQLCPlugin_Identifier {
@@ -3178,7 +3914,7 @@ type SQLCPlugin_Identifier struct {
 
 func (x *SQLCPlugin_Identifier) Reset() {
 	*x = SQLCPlugin_Identifier{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[43]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3190,7 +3926,7 @@ func (x *SQLCPlugin_Identifier) String() string {
 func (*SQLCPlugin_Identifier) ProtoMessage() {}
 
 func (x *SQLCPlugin_Identifier) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[43]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3203,7 +3939,7 @@ func (x *SQLCPlugin_Identifier) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Identifier.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Identifier) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 8}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 8}
 }
 
 func (x *SQLCPlugin_Identifier) GetCatalog() string {
@@ -3252,7 +3988,7 @@ type SQLCPlugin_Column struct {
 
 func (x *SQLCPlugin_Column) Reset() {
 	*x = SQLCPlugin_Column{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[44]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3264,7 +4000,7 @@ func (x *SQLCPlugin_Column) String() string {
 func (*SQLCPlugin_Column) ProtoMessage() {}
 
 func (x *SQLCPlugin_Column) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[44]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3277,7 +4013,7 @@ func (x *SQLCPlugin_Column) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Column.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Column) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 9}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 9}
 }
 
 func (x *SQLCPlugin_Column) GetName() string {
@@ -3408,7 +4144,7 @@ type SQLCPlugin_Query struct {
 
 func (x *SQLCPlugin_Query) Reset() {
 	*x = SQLCPlugin_Query{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[45]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3420,7 +4156,7 @@ func (x *SQLCPlugin_Query) String() string {
 func (*SQLCPlugin_Query) ProtoMessage() {}
 
 func (x *SQLCPlugin_Query) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[45]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3433,7 +4169,7 @@ func (x *SQLCPlugin_Query) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Query.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Query) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 10}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 10}
 }
 
 func (x *SQLCPlugin_Query) GetText() string {
@@ -3502,7 +4238,7 @@ type SQLCPlugin_Parameter struct {
 
 func (x *SQLCPlugin_Parameter) Reset() {
 	*x = SQLCPlugin_Parameter{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[46]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3514,7 +4250,7 @@ func (x *SQLCPlugin_Parameter) String() string {
 func (*SQLCPlugin_Parameter) ProtoMessage() {}
 
 func (x *SQLCPlugin_Parameter) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[46]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3527,7 +4263,7 @@ func (x *SQLCPlugin_Parameter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Parameter.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Parameter) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 11}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 11}
 }
 
 func (x *SQLCPlugin_Parameter) GetNumber() int32 {
@@ -3558,7 +4294,7 @@ type SQLCPlugin_GenerateRequest struct {
 
 func (x *SQLCPlugin_GenerateRequest) Reset() {
 	*x = SQLCPlugin_GenerateRequest{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[47]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3570,7 +4306,7 @@ func (x *SQLCPlugin_GenerateRequest) String() string {
 func (*SQLCPlugin_GenerateRequest) ProtoMessage() {}
 
 func (x *SQLCPlugin_GenerateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[47]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3583,7 +4319,7 @@ func (x *SQLCPlugin_GenerateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_GenerateRequest.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_GenerateRequest) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 12}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 12}
 }
 
 func (x *SQLCPlugin_GenerateRequest) GetSettings() *SQLCPlugin_Settings {
@@ -3637,7 +4373,7 @@ type SQLCPlugin_GenerateResponse struct {
 
 func (x *SQLCPlugin_GenerateResponse) Reset() {
 	*x = SQLCPlugin_GenerateResponse{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[48]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3649,7 +4385,7 @@ func (x *SQLCPlugin_GenerateResponse) String() string {
 func (*SQLCPlugin_GenerateResponse) ProtoMessage() {}
 
 func (x *SQLCPlugin_GenerateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[48]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3662,7 +4398,7 @@ func (x *SQLCPlugin_GenerateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_GenerateResponse.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_GenerateResponse) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 13}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 13}
 }
 
 func (x *SQLCPlugin_GenerateResponse) GetFiles() []*SQLCPlugin_File {
@@ -3681,7 +4417,7 @@ type SQLCPlugin_Codegen_Process struct {
 
 func (x *SQLCPlugin_Codegen_Process) Reset() {
 	*x = SQLCPlugin_Codegen_Process{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[49]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3693,7 +4429,7 @@ func (x *SQLCPlugin_Codegen_Process) String() string {
 func (*SQLCPlugin_Codegen_Process) ProtoMessage() {}
 
 func (x *SQLCPlugin_Codegen_Process) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[49]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3706,7 +4442,7 @@ func (x *SQLCPlugin_Codegen_Process) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Codegen_Process.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Codegen_Process) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 2, 0}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 2, 0}
 }
 
 func (x *SQLCPlugin_Codegen_Process) GetCmd() string {
@@ -3726,7 +4462,7 @@ type SQLCPlugin_Codegen_WASM struct {
 
 func (x *SQLCPlugin_Codegen_WASM) Reset() {
 	*x = SQLCPlugin_Codegen_WASM{}
-	mi := &file_encore_daemon_daemon_proto_msgTypes[50]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3738,7 +4474,7 @@ func (x *SQLCPlugin_Codegen_WASM) String() string {
 func (*SQLCPlugin_Codegen_WASM) ProtoMessage() {}
 
 func (x *SQLCPlugin_Codegen_WASM) ProtoReflect() protoreflect.Message {
-	mi := &file_encore_daemon_daemon_proto_msgTypes[50]
+	mi := &file_encore_daemon_daemon_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3751,7 +4487,7 @@ func (x *SQLCPlugin_Codegen_WASM) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SQLCPlugin_Codegen_WASM.ProtoReflect.Descriptor instead.
 func (*SQLCPlugin_Codegen_WASM) Descriptor() ([]byte, []int) {
-	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{34, 2, 1}
+	return file_encore_daemon_daemon_proto_rawDescGZIP(), []int{43, 2, 1}
 }
 
 func (x *SQLCPlugin_Codegen_WASM) GetUrl() string {
@@ -3790,7 +4526,7 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"\btemplate\x18\x02 \x01(\tR\btemplate\x12\x1a\n" +
 	"\btutorial\x18\x03 \x01(\bR\btutorial\"*\n" +
 	"\x11CreateAppResponse\x12\x15\n" +
-	"\x06app_id\x18\x01 \x01(\tR\x05appId\"\xf1\x04\n" +
+	"\x06app_id\x18\x01 \x01(\tR\x05appId\"\x9a\x05\n" +
 	"\n" +
 	"RunRequest\x12\x19\n" +
 	"\bapp_root\x18\x01 \x01(\tR\aappRoot\x12\x1f\n" +
@@ -3808,7 +4544,8 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"\n" +
 	"debug_mode\x18\v \x01(\x0e2#.encore.daemon.RunRequest.DebugModeR\tdebugMode\x12 \n" +
 	"\tlog_level\x18\f \x01(\tH\x02R\blogLevel\x88\x01\x01\x120\n" +
-	"\x14scrub_sensitive_data\x18\r \x01(\bR\x12scrubSensitiveData\"F\n" +
+	"\x14scrub_sensitive_data\x18\r \x01(\bR\x12scrubSensitiveData\x12'\n" +
+	"\x0fnon_interactive\x18\x0e \x01(\bR\x0enonInteractive\"F\n" +
 	"\vBrowserMode\x12\x10\n" +
 	"\fBROWSER_AUTO\x10\x00\x12\x11\n" +
 	"\rBROWSER_NEVER\x10\x01\x12\x12\n" +
@@ -3821,7 +4558,39 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"\n" +
 	"_namespaceB\f\n" +
 	"\n" +
-	"_log_level\"\xf0\x01\n" +
+	"_log_level\"\x83\x02\n" +
+	"\x0eRunSpecRequest\x12\x19\n" +
+	"\bapp_root\x18\x01 \x01(\tR\aappRoot\x12\x1f\n" +
+	"\vworking_dir\x18\x02 \x01(\tR\n" +
+	"workingDir\x12\x18\n" +
+	"\aenviron\x18\x03 \x03(\tR\aenviron\x126\n" +
+	"\bcommands\x18\x04 \x03(\v2\x1a.encore.daemon.SpecCommandR\bcommands\x122\n" +
+	"\x15ready_timeout_seconds\x18\x05 \x01(\x05R\x13readyTimeoutSeconds\x12!\n" +
+	"\tnamespace\x18\x06 \x01(\tH\x00R\tnamespace\x88\x01\x01B\f\n" +
+	"\n" +
+	"_namespace\"F\n" +
+	"\vSpecCommand\x120\n" +
+	"\x04curl\x18\x01 \x01(\v2\x1a.encore.daemon.CurlCommandH\x00R\x04curlB\x05\n" +
+	"\x03cmd\"5\n" +
+	"\vCurlCommand\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
+	"\x04args\x18\x02 \x03(\tR\x04args\"\xc6\x01\n" +
+	"\x0eRunSpecMessage\x126\n" +
+	"\x06output\x18\x01 \x01(\v2\x1c.encore.daemon.CommandOutputH\x00R\x06output\x12:\n" +
+	"\x06result\x18\x02 \x01(\v2 .encore.daemon.SpecCommandResultH\x00R\x06result\x129\n" +
+	"\bcomplete\x18\x03 \x01(\v2\x1b.encore.daemon.SpecCompleteH\x00R\bcompleteB\x05\n" +
+	"\x03msg\"\xa6\x01\n" +
+	"\x11SpecCommandResult\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\x05R\x05index\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x18\n" +
+	"\adisplay\x18\x03 \x01(\tR\adisplay\x12\x16\n" +
+	"\x06stdout\x18\x04 \x01(\fR\x06stdout\x12\x16\n" +
+	"\x06stderr\x18\x05 \x01(\fR\x06stderr\x12\x1b\n" +
+	"\texit_code\x18\x06 \x01(\x05R\bexitCode\"X\n" +
+	"\fSpecComplete\x12\x1c\n" +
+	"\tsucceeded\x18\x01 \x01(\x05R\tsucceeded\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x05R\x05total\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"\xf0\x01\n" +
 	"\vTestRequest\x12\x19\n" +
 	"\bapp_root\x18\x01 \x01(\tR\aappRoot\x12\x1f\n" +
 	"\vworking_dir\x18\x02 \x01(\tR\n" +
@@ -3843,7 +4612,7 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"\x10TestSpecResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12\x18\n" +
-	"\aenviron\x18\x03 \x03(\tR\aenviron\"\xee\x01\n" +
+	"\aenviron\x18\x03 \x03(\tR\aenviron\"\x97\x02\n" +
 	"\x11ExecScriptRequest\x12\x19\n" +
 	"\bapp_root\x18\x01 \x01(\tR\aappRoot\x12\x1f\n" +
 	"\vworking_dir\x18\x02 \x01(\tR\n" +
@@ -3853,10 +4622,31 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"\aenviron\x18\x05 \x03(\tR\aenviron\x12\"\n" +
 	"\n" +
 	"trace_file\x18\x06 \x01(\tH\x00R\ttraceFile\x88\x01\x01\x12!\n" +
-	"\tnamespace\x18\a \x01(\tH\x01R\tnamespace\x88\x01\x01B\r\n" +
+	"\tnamespace\x18\a \x01(\tH\x01R\tnamespace\x88\x01\x01\x12'\n" +
+	"\x0fnon_interactive\x18\b \x01(\bR\x0enonInteractiveB\r\n" +
 	"\v_trace_fileB\f\n" +
 	"\n" +
-	"_namespace\"\xaa\x01\n" +
+	"_namespace\"\xfd\x01\n" +
+	"\x0fExecSpecRequest\x12\x19\n" +
+	"\bapp_root\x18\x01 \x01(\tR\aappRoot\x12\x1f\n" +
+	"\vworking_dir\x18\x02 \x01(\tR\n" +
+	"workingDir\x12\x1f\n" +
+	"\vscript_args\x18\x04 \x03(\tR\n" +
+	"scriptArgs\x12\x18\n" +
+	"\aenviron\x18\x05 \x03(\tR\aenviron\x12!\n" +
+	"\tnamespace\x18\a \x01(\tH\x00R\tnamespace\x88\x01\x01\x12\x19\n" +
+	"\btemp_dir\x18\b \x01(\tR\atempDir\x12'\n" +
+	"\x0fnon_interactive\x18\t \x01(\bR\x0enonInteractiveB\f\n" +
+	"\n" +
+	"_namespace\"\x87\x01\n" +
+	"\x0fExecSpecMessage\x126\n" +
+	"\x06output\x18\x01 \x01(\v2\x1c.encore.daemon.CommandOutputH\x00R\x06output\x125\n" +
+	"\x04spec\x18\x02 \x01(\v2\x1f.encore.daemon.ExecSpecResponseH\x00R\x04specB\x05\n" +
+	"\x03msg\"Z\n" +
+	"\x10ExecSpecResponse\x12\x18\n" +
+	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
+	"\x04args\x18\x02 \x03(\tR\x04args\x12\x18\n" +
+	"\aenviron\x18\x03 \x03(\tR\aenviron\"\xaa\x01\n" +
 	"\fCheckRequest\x12\x19\n" +
 	"\bapp_root\x18\x01 \x01(\tR\aappRoot\x12\x1f\n" +
 	"\vworking_dir\x18\x02 \x01(\tR\n" +
@@ -3910,7 +4700,7 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"\fcluster_type\x18\x03 \x01(\x0e2\x1c.encore.daemon.DBClusterTypeR\vclusterType\x12!\n" +
 	"\tnamespace\x18\x04 \x01(\tH\x00R\tnamespace\x88\x01\x01B\f\n" +
 	"\n" +
-	"_namespace\"\x93\x04\n" +
+	"_namespace\"\xae\x04\n" +
 	"\x10GenClientRequest\x12\x15\n" +
 	"\x06app_id\x18\x01 \x01(\tR\x05appId\x12\x19\n" +
 	"\benv_name\x18\x02 \x01(\tR\aenvName\x12\x12\n" +
@@ -3923,7 +4713,8 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"!openapi_exclude_private_endpoints\x18\t \x01(\bH\x00R\x1eopenapiExcludePrivateEndpoints\x88\x01\x01\x12+\n" +
 	"\x0fts_shared_types\x18\n" +
 	" \x01(\bH\x01R\rtsSharedTypes\x88\x01\x01\x12-\n" +
-	"\x10ts_client_target\x18\v \x01(\tH\x02R\x0etsClientTarget\x88\x01\x01B$\n" +
+	"\x10ts_client_target\x18\v \x01(\tH\x02R\x0etsClientTarget\x88\x01\x01\x12\x19\n" +
+	"\bapp_root\x18\f \x01(\tR\aappRootB$\n" +
 	"\"_openapi_exclude_private_endpointsB\x12\n" +
 	"\x10_ts_shared_typesB\x13\n" +
 	"\x11_ts_client_target\"'\n" +
@@ -4089,13 +4880,15 @@ const file_encore_daemon_daemon_proto_rawDesc = "" +
 	"\x1bDB_CLUSTER_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13DB_CLUSTER_TYPE_RUN\x10\x01\x12\x18\n" +
 	"\x14DB_CLUSTER_TYPE_TEST\x10\x02\x12\x1a\n" +
-	"\x16DB_CLUSTER_TYPE_SHADOW\x10\x032\xa7\f\n" +
+	"\x16DB_CLUSTER_TYPE_SHADOW\x10\x032\xc0\r\n" +
 	"\x06Daemon\x12A\n" +
-	"\x03Run\x12\x19.encore.daemon.RunRequest\x1a\x1d.encore.daemon.CommandMessage0\x01\x12C\n" +
+	"\x03Run\x12\x19.encore.daemon.RunRequest\x1a\x1d.encore.daemon.CommandMessage0\x01\x12I\n" +
+	"\aRunSpec\x12\x1d.encore.daemon.RunSpecRequest\x1a\x1d.encore.daemon.RunSpecMessage0\x01\x12C\n" +
 	"\x04Test\x12\x1a.encore.daemon.TestRequest\x1a\x1d.encore.daemon.CommandMessage0\x01\x12K\n" +
 	"\bTestSpec\x12\x1e.encore.daemon.TestSpecRequest\x1a\x1f.encore.daemon.TestSpecResponse\x12O\n" +
 	"\n" +
-	"ExecScript\x12 .encore.daemon.ExecScriptRequest\x1a\x1d.encore.daemon.CommandMessage0\x01\x12E\n" +
+	"ExecScript\x12 .encore.daemon.ExecScriptRequest\x1a\x1d.encore.daemon.CommandMessage0\x01\x12L\n" +
+	"\bExecSpec\x12\x1e.encore.daemon.ExecSpecRequest\x1a\x1e.encore.daemon.ExecSpecMessage0\x01\x12E\n" +
 	"\x05Check\x12\x1b.encore.daemon.CheckRequest\x1a\x1d.encore.daemon.CommandMessage0\x01\x12G\n" +
 	"\x06Export\x12\x1c.encore.daemon.ExportRequest\x1a\x1d.encore.daemon.CommandMessage0\x01\x12N\n" +
 	"\tDBConnect\x12\x1f.encore.daemon.DBConnectRequest\x1a .encore.daemon.DBConnectResponse\x12I\n" +
@@ -4126,7 +4919,7 @@ func file_encore_daemon_daemon_proto_rawDescGZIP() []byte {
 }
 
 var file_encore_daemon_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_encore_daemon_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_encore_daemon_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
 var file_encore_daemon_daemon_proto_goTypes = []any{
 	(DBRole)(0),                         // 0: encore.daemon.DBRole
 	(DBClusterType)(0),                  // 1: encore.daemon.DBClusterType
@@ -4140,51 +4933,60 @@ var file_encore_daemon_daemon_proto_goTypes = []any{
 	(*CreateAppRequest)(nil),            // 9: encore.daemon.CreateAppRequest
 	(*CreateAppResponse)(nil),           // 10: encore.daemon.CreateAppResponse
 	(*RunRequest)(nil),                  // 11: encore.daemon.RunRequest
-	(*TestRequest)(nil),                 // 12: encore.daemon.TestRequest
-	(*TestSpecRequest)(nil),             // 13: encore.daemon.TestSpecRequest
-	(*TestSpecResponse)(nil),            // 14: encore.daemon.TestSpecResponse
-	(*ExecScriptRequest)(nil),           // 15: encore.daemon.ExecScriptRequest
-	(*CheckRequest)(nil),                // 16: encore.daemon.CheckRequest
-	(*ExportRequest)(nil),               // 17: encore.daemon.ExportRequest
-	(*DockerExportParams)(nil),          // 18: encore.daemon.DockerExportParams
-	(*DBConnectRequest)(nil),            // 19: encore.daemon.DBConnectRequest
-	(*DBConnectResponse)(nil),           // 20: encore.daemon.DBConnectResponse
-	(*DBProxyRequest)(nil),              // 21: encore.daemon.DBProxyRequest
-	(*DBResetRequest)(nil),              // 22: encore.daemon.DBResetRequest
-	(*GenClientRequest)(nil),            // 23: encore.daemon.GenClientRequest
-	(*GenClientResponse)(nil),           // 24: encore.daemon.GenClientResponse
-	(*GenWrappersRequest)(nil),          // 25: encore.daemon.GenWrappersRequest
-	(*GenWrappersResponse)(nil),         // 26: encore.daemon.GenWrappersResponse
-	(*SecretsRefreshRequest)(nil),       // 27: encore.daemon.SecretsRefreshRequest
-	(*SecretsRefreshResponse)(nil),      // 28: encore.daemon.SecretsRefreshResponse
-	(*VersionResponse)(nil),             // 29: encore.daemon.VersionResponse
-	(*Namespace)(nil),                   // 30: encore.daemon.Namespace
-	(*CreateNamespaceRequest)(nil),      // 31: encore.daemon.CreateNamespaceRequest
-	(*SwitchNamespaceRequest)(nil),      // 32: encore.daemon.SwitchNamespaceRequest
-	(*ListNamespacesRequest)(nil),       // 33: encore.daemon.ListNamespacesRequest
-	(*DeleteNamespaceRequest)(nil),      // 34: encore.daemon.DeleteNamespaceRequest
-	(*ListNamespacesResponse)(nil),      // 35: encore.daemon.ListNamespacesResponse
-	(*TelemetryConfig)(nil),             // 36: encore.daemon.TelemetryConfig
-	(*DumpMetaRequest)(nil),             // 37: encore.daemon.DumpMetaRequest
-	(*DumpMetaResponse)(nil),            // 38: encore.daemon.DumpMetaResponse
-	(*SQLCPlugin)(nil),                  // 39: encore.daemon.SQLCPlugin
-	(*SQLCPlugin_File)(nil),             // 40: encore.daemon.SQLCPlugin.File
-	(*SQLCPlugin_Settings)(nil),         // 41: encore.daemon.SQLCPlugin.Settings
-	(*SQLCPlugin_Codegen)(nil),          // 42: encore.daemon.SQLCPlugin.Codegen
-	(*SQLCPlugin_Catalog)(nil),          // 43: encore.daemon.SQLCPlugin.Catalog
-	(*SQLCPlugin_Schema)(nil),           // 44: encore.daemon.SQLCPlugin.Schema
-	(*SQLCPlugin_CompositeType)(nil),    // 45: encore.daemon.SQLCPlugin.CompositeType
-	(*SQLCPlugin_Enum)(nil),             // 46: encore.daemon.SQLCPlugin.Enum
-	(*SQLCPlugin_Table)(nil),            // 47: encore.daemon.SQLCPlugin.Table
-	(*SQLCPlugin_Identifier)(nil),       // 48: encore.daemon.SQLCPlugin.Identifier
-	(*SQLCPlugin_Column)(nil),           // 49: encore.daemon.SQLCPlugin.Column
-	(*SQLCPlugin_Query)(nil),            // 50: encore.daemon.SQLCPlugin.Query
-	(*SQLCPlugin_Parameter)(nil),        // 51: encore.daemon.SQLCPlugin.Parameter
-	(*SQLCPlugin_GenerateRequest)(nil),  // 52: encore.daemon.SQLCPlugin.GenerateRequest
-	(*SQLCPlugin_GenerateResponse)(nil), // 53: encore.daemon.SQLCPlugin.GenerateResponse
-	(*SQLCPlugin_Codegen_Process)(nil),  // 54: encore.daemon.SQLCPlugin.Codegen.Process
-	(*SQLCPlugin_Codegen_WASM)(nil),     // 55: encore.daemon.SQLCPlugin.Codegen.WASM
-	(*emptypb.Empty)(nil),               // 56: google.protobuf.Empty
+	(*RunSpecRequest)(nil),              // 12: encore.daemon.RunSpecRequest
+	(*SpecCommand)(nil),                 // 13: encore.daemon.SpecCommand
+	(*CurlCommand)(nil),                 // 14: encore.daemon.CurlCommand
+	(*RunSpecMessage)(nil),              // 15: encore.daemon.RunSpecMessage
+	(*SpecCommandResult)(nil),           // 16: encore.daemon.SpecCommandResult
+	(*SpecComplete)(nil),                // 17: encore.daemon.SpecComplete
+	(*TestRequest)(nil),                 // 18: encore.daemon.TestRequest
+	(*TestSpecRequest)(nil),             // 19: encore.daemon.TestSpecRequest
+	(*TestSpecResponse)(nil),            // 20: encore.daemon.TestSpecResponse
+	(*ExecScriptRequest)(nil),           // 21: encore.daemon.ExecScriptRequest
+	(*ExecSpecRequest)(nil),             // 22: encore.daemon.ExecSpecRequest
+	(*ExecSpecMessage)(nil),             // 23: encore.daemon.ExecSpecMessage
+	(*ExecSpecResponse)(nil),            // 24: encore.daemon.ExecSpecResponse
+	(*CheckRequest)(nil),                // 25: encore.daemon.CheckRequest
+	(*ExportRequest)(nil),               // 26: encore.daemon.ExportRequest
+	(*DockerExportParams)(nil),          // 27: encore.daemon.DockerExportParams
+	(*DBConnectRequest)(nil),            // 28: encore.daemon.DBConnectRequest
+	(*DBConnectResponse)(nil),           // 29: encore.daemon.DBConnectResponse
+	(*DBProxyRequest)(nil),              // 30: encore.daemon.DBProxyRequest
+	(*DBResetRequest)(nil),              // 31: encore.daemon.DBResetRequest
+	(*GenClientRequest)(nil),            // 32: encore.daemon.GenClientRequest
+	(*GenClientResponse)(nil),           // 33: encore.daemon.GenClientResponse
+	(*GenWrappersRequest)(nil),          // 34: encore.daemon.GenWrappersRequest
+	(*GenWrappersResponse)(nil),         // 35: encore.daemon.GenWrappersResponse
+	(*SecretsRefreshRequest)(nil),       // 36: encore.daemon.SecretsRefreshRequest
+	(*SecretsRefreshResponse)(nil),      // 37: encore.daemon.SecretsRefreshResponse
+	(*VersionResponse)(nil),             // 38: encore.daemon.VersionResponse
+	(*Namespace)(nil),                   // 39: encore.daemon.Namespace
+	(*CreateNamespaceRequest)(nil),      // 40: encore.daemon.CreateNamespaceRequest
+	(*SwitchNamespaceRequest)(nil),      // 41: encore.daemon.SwitchNamespaceRequest
+	(*ListNamespacesRequest)(nil),       // 42: encore.daemon.ListNamespacesRequest
+	(*DeleteNamespaceRequest)(nil),      // 43: encore.daemon.DeleteNamespaceRequest
+	(*ListNamespacesResponse)(nil),      // 44: encore.daemon.ListNamespacesResponse
+	(*TelemetryConfig)(nil),             // 45: encore.daemon.TelemetryConfig
+	(*DumpMetaRequest)(nil),             // 46: encore.daemon.DumpMetaRequest
+	(*DumpMetaResponse)(nil),            // 47: encore.daemon.DumpMetaResponse
+	(*SQLCPlugin)(nil),                  // 48: encore.daemon.SQLCPlugin
+	(*SQLCPlugin_File)(nil),             // 49: encore.daemon.SQLCPlugin.File
+	(*SQLCPlugin_Settings)(nil),         // 50: encore.daemon.SQLCPlugin.Settings
+	(*SQLCPlugin_Codegen)(nil),          // 51: encore.daemon.SQLCPlugin.Codegen
+	(*SQLCPlugin_Catalog)(nil),          // 52: encore.daemon.SQLCPlugin.Catalog
+	(*SQLCPlugin_Schema)(nil),           // 53: encore.daemon.SQLCPlugin.Schema
+	(*SQLCPlugin_CompositeType)(nil),    // 54: encore.daemon.SQLCPlugin.CompositeType
+	(*SQLCPlugin_Enum)(nil),             // 55: encore.daemon.SQLCPlugin.Enum
+	(*SQLCPlugin_Table)(nil),            // 56: encore.daemon.SQLCPlugin.Table
+	(*SQLCPlugin_Identifier)(nil),       // 57: encore.daemon.SQLCPlugin.Identifier
+	(*SQLCPlugin_Column)(nil),           // 58: encore.daemon.SQLCPlugin.Column
+	(*SQLCPlugin_Query)(nil),            // 59: encore.daemon.SQLCPlugin.Query
+	(*SQLCPlugin_Parameter)(nil),        // 60: encore.daemon.SQLCPlugin.Parameter
+	(*SQLCPlugin_GenerateRequest)(nil),  // 61: encore.daemon.SQLCPlugin.GenerateRequest
+	(*SQLCPlugin_GenerateResponse)(nil), // 62: encore.daemon.SQLCPlugin.GenerateResponse
+	(*SQLCPlugin_Codegen_Process)(nil),  // 63: encore.daemon.SQLCPlugin.Codegen.Process
+	(*SQLCPlugin_Codegen_WASM)(nil),     // 64: encore.daemon.SQLCPlugin.Codegen.WASM
+	(*emptypb.Empty)(nil),               // 65: google.protobuf.Empty
 }
 var file_encore_daemon_daemon_proto_depIdxs = []int32{
 	6,  // 0: encore.daemon.CommandMessage.output:type_name -> encore.daemon.CommandOutput
@@ -4192,79 +4994,90 @@ var file_encore_daemon_daemon_proto_depIdxs = []int32{
 	8,  // 2: encore.daemon.CommandMessage.errors:type_name -> encore.daemon.CommandDisplayErrors
 	2,  // 3: encore.daemon.RunRequest.browser:type_name -> encore.daemon.RunRequest.BrowserMode
 	3,  // 4: encore.daemon.RunRequest.debug_mode:type_name -> encore.daemon.RunRequest.DebugMode
-	18, // 5: encore.daemon.ExportRequest.docker:type_name -> encore.daemon.DockerExportParams
-	1,  // 6: encore.daemon.DBConnectRequest.cluster_type:type_name -> encore.daemon.DBClusterType
-	0,  // 7: encore.daemon.DBConnectRequest.role:type_name -> encore.daemon.DBRole
-	1,  // 8: encore.daemon.DBProxyRequest.cluster_type:type_name -> encore.daemon.DBClusterType
-	0,  // 9: encore.daemon.DBProxyRequest.role:type_name -> encore.daemon.DBRole
-	1,  // 10: encore.daemon.DBResetRequest.cluster_type:type_name -> encore.daemon.DBClusterType
-	30, // 11: encore.daemon.ListNamespacesResponse.namespaces:type_name -> encore.daemon.Namespace
-	4,  // 12: encore.daemon.DumpMetaRequest.format:type_name -> encore.daemon.DumpMetaRequest.Format
-	42, // 13: encore.daemon.SQLCPlugin.Settings.codegen:type_name -> encore.daemon.SQLCPlugin.Codegen
-	54, // 14: encore.daemon.SQLCPlugin.Codegen.process:type_name -> encore.daemon.SQLCPlugin.Codegen.Process
-	55, // 15: encore.daemon.SQLCPlugin.Codegen.wasm:type_name -> encore.daemon.SQLCPlugin.Codegen.WASM
-	44, // 16: encore.daemon.SQLCPlugin.Catalog.schemas:type_name -> encore.daemon.SQLCPlugin.Schema
-	47, // 17: encore.daemon.SQLCPlugin.Schema.tables:type_name -> encore.daemon.SQLCPlugin.Table
-	46, // 18: encore.daemon.SQLCPlugin.Schema.enums:type_name -> encore.daemon.SQLCPlugin.Enum
-	45, // 19: encore.daemon.SQLCPlugin.Schema.composite_types:type_name -> encore.daemon.SQLCPlugin.CompositeType
-	48, // 20: encore.daemon.SQLCPlugin.Table.rel:type_name -> encore.daemon.SQLCPlugin.Identifier
-	49, // 21: encore.daemon.SQLCPlugin.Table.columns:type_name -> encore.daemon.SQLCPlugin.Column
-	48, // 22: encore.daemon.SQLCPlugin.Column.table:type_name -> encore.daemon.SQLCPlugin.Identifier
-	48, // 23: encore.daemon.SQLCPlugin.Column.type:type_name -> encore.daemon.SQLCPlugin.Identifier
-	48, // 24: encore.daemon.SQLCPlugin.Column.embed_table:type_name -> encore.daemon.SQLCPlugin.Identifier
-	49, // 25: encore.daemon.SQLCPlugin.Query.columns:type_name -> encore.daemon.SQLCPlugin.Column
-	51, // 26: encore.daemon.SQLCPlugin.Query.params:type_name -> encore.daemon.SQLCPlugin.Parameter
-	48, // 27: encore.daemon.SQLCPlugin.Query.insert_into_table:type_name -> encore.daemon.SQLCPlugin.Identifier
-	49, // 28: encore.daemon.SQLCPlugin.Parameter.column:type_name -> encore.daemon.SQLCPlugin.Column
-	41, // 29: encore.daemon.SQLCPlugin.GenerateRequest.settings:type_name -> encore.daemon.SQLCPlugin.Settings
-	43, // 30: encore.daemon.SQLCPlugin.GenerateRequest.catalog:type_name -> encore.daemon.SQLCPlugin.Catalog
-	50, // 31: encore.daemon.SQLCPlugin.GenerateRequest.queries:type_name -> encore.daemon.SQLCPlugin.Query
-	40, // 32: encore.daemon.SQLCPlugin.GenerateResponse.files:type_name -> encore.daemon.SQLCPlugin.File
-	11, // 33: encore.daemon.Daemon.Run:input_type -> encore.daemon.RunRequest
-	12, // 34: encore.daemon.Daemon.Test:input_type -> encore.daemon.TestRequest
-	13, // 35: encore.daemon.Daemon.TestSpec:input_type -> encore.daemon.TestSpecRequest
-	15, // 36: encore.daemon.Daemon.ExecScript:input_type -> encore.daemon.ExecScriptRequest
-	16, // 37: encore.daemon.Daemon.Check:input_type -> encore.daemon.CheckRequest
-	17, // 38: encore.daemon.Daemon.Export:input_type -> encore.daemon.ExportRequest
-	19, // 39: encore.daemon.Daemon.DBConnect:input_type -> encore.daemon.DBConnectRequest
-	21, // 40: encore.daemon.Daemon.DBProxy:input_type -> encore.daemon.DBProxyRequest
-	22, // 41: encore.daemon.Daemon.DBReset:input_type -> encore.daemon.DBResetRequest
-	23, // 42: encore.daemon.Daemon.GenClient:input_type -> encore.daemon.GenClientRequest
-	25, // 43: encore.daemon.Daemon.GenWrappers:input_type -> encore.daemon.GenWrappersRequest
-	27, // 44: encore.daemon.Daemon.SecretsRefresh:input_type -> encore.daemon.SecretsRefreshRequest
-	56, // 45: encore.daemon.Daemon.Version:input_type -> google.protobuf.Empty
-	31, // 46: encore.daemon.Daemon.CreateNamespace:input_type -> encore.daemon.CreateNamespaceRequest
-	32, // 47: encore.daemon.Daemon.SwitchNamespace:input_type -> encore.daemon.SwitchNamespaceRequest
-	33, // 48: encore.daemon.Daemon.ListNamespaces:input_type -> encore.daemon.ListNamespacesRequest
-	34, // 49: encore.daemon.Daemon.DeleteNamespace:input_type -> encore.daemon.DeleteNamespaceRequest
-	37, // 50: encore.daemon.Daemon.DumpMeta:input_type -> encore.daemon.DumpMetaRequest
-	36, // 51: encore.daemon.Daemon.Telemetry:input_type -> encore.daemon.TelemetryConfig
-	9,  // 52: encore.daemon.Daemon.CreateApp:input_type -> encore.daemon.CreateAppRequest
-	5,  // 53: encore.daemon.Daemon.Run:output_type -> encore.daemon.CommandMessage
-	5,  // 54: encore.daemon.Daemon.Test:output_type -> encore.daemon.CommandMessage
-	14, // 55: encore.daemon.Daemon.TestSpec:output_type -> encore.daemon.TestSpecResponse
-	5,  // 56: encore.daemon.Daemon.ExecScript:output_type -> encore.daemon.CommandMessage
-	5,  // 57: encore.daemon.Daemon.Check:output_type -> encore.daemon.CommandMessage
-	5,  // 58: encore.daemon.Daemon.Export:output_type -> encore.daemon.CommandMessage
-	20, // 59: encore.daemon.Daemon.DBConnect:output_type -> encore.daemon.DBConnectResponse
-	5,  // 60: encore.daemon.Daemon.DBProxy:output_type -> encore.daemon.CommandMessage
-	5,  // 61: encore.daemon.Daemon.DBReset:output_type -> encore.daemon.CommandMessage
-	24, // 62: encore.daemon.Daemon.GenClient:output_type -> encore.daemon.GenClientResponse
-	26, // 63: encore.daemon.Daemon.GenWrappers:output_type -> encore.daemon.GenWrappersResponse
-	28, // 64: encore.daemon.Daemon.SecretsRefresh:output_type -> encore.daemon.SecretsRefreshResponse
-	29, // 65: encore.daemon.Daemon.Version:output_type -> encore.daemon.VersionResponse
-	30, // 66: encore.daemon.Daemon.CreateNamespace:output_type -> encore.daemon.Namespace
-	30, // 67: encore.daemon.Daemon.SwitchNamespace:output_type -> encore.daemon.Namespace
-	35, // 68: encore.daemon.Daemon.ListNamespaces:output_type -> encore.daemon.ListNamespacesResponse
-	56, // 69: encore.daemon.Daemon.DeleteNamespace:output_type -> google.protobuf.Empty
-	38, // 70: encore.daemon.Daemon.DumpMeta:output_type -> encore.daemon.DumpMetaResponse
-	56, // 71: encore.daemon.Daemon.Telemetry:output_type -> google.protobuf.Empty
-	10, // 72: encore.daemon.Daemon.CreateApp:output_type -> encore.daemon.CreateAppResponse
-	53, // [53:73] is the sub-list for method output_type
-	33, // [33:53] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	13, // 5: encore.daemon.RunSpecRequest.commands:type_name -> encore.daemon.SpecCommand
+	14, // 6: encore.daemon.SpecCommand.curl:type_name -> encore.daemon.CurlCommand
+	6,  // 7: encore.daemon.RunSpecMessage.output:type_name -> encore.daemon.CommandOutput
+	16, // 8: encore.daemon.RunSpecMessage.result:type_name -> encore.daemon.SpecCommandResult
+	17, // 9: encore.daemon.RunSpecMessage.complete:type_name -> encore.daemon.SpecComplete
+	6,  // 10: encore.daemon.ExecSpecMessage.output:type_name -> encore.daemon.CommandOutput
+	24, // 11: encore.daemon.ExecSpecMessage.spec:type_name -> encore.daemon.ExecSpecResponse
+	27, // 12: encore.daemon.ExportRequest.docker:type_name -> encore.daemon.DockerExportParams
+	1,  // 13: encore.daemon.DBConnectRequest.cluster_type:type_name -> encore.daemon.DBClusterType
+	0,  // 14: encore.daemon.DBConnectRequest.role:type_name -> encore.daemon.DBRole
+	1,  // 15: encore.daemon.DBProxyRequest.cluster_type:type_name -> encore.daemon.DBClusterType
+	0,  // 16: encore.daemon.DBProxyRequest.role:type_name -> encore.daemon.DBRole
+	1,  // 17: encore.daemon.DBResetRequest.cluster_type:type_name -> encore.daemon.DBClusterType
+	39, // 18: encore.daemon.ListNamespacesResponse.namespaces:type_name -> encore.daemon.Namespace
+	4,  // 19: encore.daemon.DumpMetaRequest.format:type_name -> encore.daemon.DumpMetaRequest.Format
+	51, // 20: encore.daemon.SQLCPlugin.Settings.codegen:type_name -> encore.daemon.SQLCPlugin.Codegen
+	63, // 21: encore.daemon.SQLCPlugin.Codegen.process:type_name -> encore.daemon.SQLCPlugin.Codegen.Process
+	64, // 22: encore.daemon.SQLCPlugin.Codegen.wasm:type_name -> encore.daemon.SQLCPlugin.Codegen.WASM
+	53, // 23: encore.daemon.SQLCPlugin.Catalog.schemas:type_name -> encore.daemon.SQLCPlugin.Schema
+	56, // 24: encore.daemon.SQLCPlugin.Schema.tables:type_name -> encore.daemon.SQLCPlugin.Table
+	55, // 25: encore.daemon.SQLCPlugin.Schema.enums:type_name -> encore.daemon.SQLCPlugin.Enum
+	54, // 26: encore.daemon.SQLCPlugin.Schema.composite_types:type_name -> encore.daemon.SQLCPlugin.CompositeType
+	57, // 27: encore.daemon.SQLCPlugin.Table.rel:type_name -> encore.daemon.SQLCPlugin.Identifier
+	58, // 28: encore.daemon.SQLCPlugin.Table.columns:type_name -> encore.daemon.SQLCPlugin.Column
+	57, // 29: encore.daemon.SQLCPlugin.Column.table:type_name -> encore.daemon.SQLCPlugin.Identifier
+	57, // 30: encore.daemon.SQLCPlugin.Column.type:type_name -> encore.daemon.SQLCPlugin.Identifier
+	57, // 31: encore.daemon.SQLCPlugin.Column.embed_table:type_name -> encore.daemon.SQLCPlugin.Identifier
+	58, // 32: encore.daemon.SQLCPlugin.Query.columns:type_name -> encore.daemon.SQLCPlugin.Column
+	60, // 33: encore.daemon.SQLCPlugin.Query.params:type_name -> encore.daemon.SQLCPlugin.Parameter
+	57, // 34: encore.daemon.SQLCPlugin.Query.insert_into_table:type_name -> encore.daemon.SQLCPlugin.Identifier
+	58, // 35: encore.daemon.SQLCPlugin.Parameter.column:type_name -> encore.daemon.SQLCPlugin.Column
+	50, // 36: encore.daemon.SQLCPlugin.GenerateRequest.settings:type_name -> encore.daemon.SQLCPlugin.Settings
+	52, // 37: encore.daemon.SQLCPlugin.GenerateRequest.catalog:type_name -> encore.daemon.SQLCPlugin.Catalog
+	59, // 38: encore.daemon.SQLCPlugin.GenerateRequest.queries:type_name -> encore.daemon.SQLCPlugin.Query
+	49, // 39: encore.daemon.SQLCPlugin.GenerateResponse.files:type_name -> encore.daemon.SQLCPlugin.File
+	11, // 40: encore.daemon.Daemon.Run:input_type -> encore.daemon.RunRequest
+	12, // 41: encore.daemon.Daemon.RunSpec:input_type -> encore.daemon.RunSpecRequest
+	18, // 42: encore.daemon.Daemon.Test:input_type -> encore.daemon.TestRequest
+	19, // 43: encore.daemon.Daemon.TestSpec:input_type -> encore.daemon.TestSpecRequest
+	21, // 44: encore.daemon.Daemon.ExecScript:input_type -> encore.daemon.ExecScriptRequest
+	22, // 45: encore.daemon.Daemon.ExecSpec:input_type -> encore.daemon.ExecSpecRequest
+	25, // 46: encore.daemon.Daemon.Check:input_type -> encore.daemon.CheckRequest
+	26, // 47: encore.daemon.Daemon.Export:input_type -> encore.daemon.ExportRequest
+	28, // 48: encore.daemon.Daemon.DBConnect:input_type -> encore.daemon.DBConnectRequest
+	30, // 49: encore.daemon.Daemon.DBProxy:input_type -> encore.daemon.DBProxyRequest
+	31, // 50: encore.daemon.Daemon.DBReset:input_type -> encore.daemon.DBResetRequest
+	32, // 51: encore.daemon.Daemon.GenClient:input_type -> encore.daemon.GenClientRequest
+	34, // 52: encore.daemon.Daemon.GenWrappers:input_type -> encore.daemon.GenWrappersRequest
+	36, // 53: encore.daemon.Daemon.SecretsRefresh:input_type -> encore.daemon.SecretsRefreshRequest
+	65, // 54: encore.daemon.Daemon.Version:input_type -> google.protobuf.Empty
+	40, // 55: encore.daemon.Daemon.CreateNamespace:input_type -> encore.daemon.CreateNamespaceRequest
+	41, // 56: encore.daemon.Daemon.SwitchNamespace:input_type -> encore.daemon.SwitchNamespaceRequest
+	42, // 57: encore.daemon.Daemon.ListNamespaces:input_type -> encore.daemon.ListNamespacesRequest
+	43, // 58: encore.daemon.Daemon.DeleteNamespace:input_type -> encore.daemon.DeleteNamespaceRequest
+	46, // 59: encore.daemon.Daemon.DumpMeta:input_type -> encore.daemon.DumpMetaRequest
+	45, // 60: encore.daemon.Daemon.Telemetry:input_type -> encore.daemon.TelemetryConfig
+	9,  // 61: encore.daemon.Daemon.CreateApp:input_type -> encore.daemon.CreateAppRequest
+	5,  // 62: encore.daemon.Daemon.Run:output_type -> encore.daemon.CommandMessage
+	15, // 63: encore.daemon.Daemon.RunSpec:output_type -> encore.daemon.RunSpecMessage
+	5,  // 64: encore.daemon.Daemon.Test:output_type -> encore.daemon.CommandMessage
+	20, // 65: encore.daemon.Daemon.TestSpec:output_type -> encore.daemon.TestSpecResponse
+	5,  // 66: encore.daemon.Daemon.ExecScript:output_type -> encore.daemon.CommandMessage
+	23, // 67: encore.daemon.Daemon.ExecSpec:output_type -> encore.daemon.ExecSpecMessage
+	5,  // 68: encore.daemon.Daemon.Check:output_type -> encore.daemon.CommandMessage
+	5,  // 69: encore.daemon.Daemon.Export:output_type -> encore.daemon.CommandMessage
+	29, // 70: encore.daemon.Daemon.DBConnect:output_type -> encore.daemon.DBConnectResponse
+	5,  // 71: encore.daemon.Daemon.DBProxy:output_type -> encore.daemon.CommandMessage
+	5,  // 72: encore.daemon.Daemon.DBReset:output_type -> encore.daemon.CommandMessage
+	33, // 73: encore.daemon.Daemon.GenClient:output_type -> encore.daemon.GenClientResponse
+	35, // 74: encore.daemon.Daemon.GenWrappers:output_type -> encore.daemon.GenWrappersResponse
+	37, // 75: encore.daemon.Daemon.SecretsRefresh:output_type -> encore.daemon.SecretsRefreshResponse
+	38, // 76: encore.daemon.Daemon.Version:output_type -> encore.daemon.VersionResponse
+	39, // 77: encore.daemon.Daemon.CreateNamespace:output_type -> encore.daemon.Namespace
+	39, // 78: encore.daemon.Daemon.SwitchNamespace:output_type -> encore.daemon.Namespace
+	44, // 79: encore.daemon.Daemon.ListNamespaces:output_type -> encore.daemon.ListNamespacesResponse
+	65, // 80: encore.daemon.Daemon.DeleteNamespace:output_type -> google.protobuf.Empty
+	47, // 81: encore.daemon.Daemon.DumpMeta:output_type -> encore.daemon.DumpMetaResponse
+	65, // 82: encore.daemon.Daemon.Telemetry:output_type -> google.protobuf.Empty
+	10, // 83: encore.daemon.Daemon.CreateApp:output_type -> encore.daemon.CreateAppResponse
+	62, // [62:84] is the sub-list for method output_type
+	40, // [40:62] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	40, // [40:40] is the sub-list for extension extendee
+	0,  // [0:40] is the sub-list for field type_name
 }
 
 func init() { file_encore_daemon_daemon_proto_init() }
@@ -4279,22 +5092,36 @@ func file_encore_daemon_daemon_proto_init() {
 	}
 	file_encore_daemon_daemon_proto_msgTypes[6].OneofWrappers = []any{}
 	file_encore_daemon_daemon_proto_msgTypes[7].OneofWrappers = []any{}
-	file_encore_daemon_daemon_proto_msgTypes[10].OneofWrappers = []any{}
-	file_encore_daemon_daemon_proto_msgTypes[12].OneofWrappers = []any{
-		(*ExportRequest_Docker)(nil),
+	file_encore_daemon_daemon_proto_msgTypes[8].OneofWrappers = []any{
+		(*SpecCommand_Curl)(nil),
 	}
-	file_encore_daemon_daemon_proto_msgTypes[14].OneofWrappers = []any{}
+	file_encore_daemon_daemon_proto_msgTypes[10].OneofWrappers = []any{
+		(*RunSpecMessage_Output)(nil),
+		(*RunSpecMessage_Result)(nil),
+		(*RunSpecMessage_Complete)(nil),
+	}
+	file_encore_daemon_daemon_proto_msgTypes[13].OneofWrappers = []any{}
 	file_encore_daemon_daemon_proto_msgTypes[16].OneofWrappers = []any{}
 	file_encore_daemon_daemon_proto_msgTypes[17].OneofWrappers = []any{}
-	file_encore_daemon_daemon_proto_msgTypes[18].OneofWrappers = []any{}
+	file_encore_daemon_daemon_proto_msgTypes[18].OneofWrappers = []any{
+		(*ExecSpecMessage_Output)(nil),
+		(*ExecSpecMessage_Spec)(nil),
+	}
+	file_encore_daemon_daemon_proto_msgTypes[21].OneofWrappers = []any{
+		(*ExportRequest_Docker)(nil),
+	}
+	file_encore_daemon_daemon_proto_msgTypes[23].OneofWrappers = []any{}
 	file_encore_daemon_daemon_proto_msgTypes[25].OneofWrappers = []any{}
+	file_encore_daemon_daemon_proto_msgTypes[26].OneofWrappers = []any{}
+	file_encore_daemon_daemon_proto_msgTypes[27].OneofWrappers = []any{}
+	file_encore_daemon_daemon_proto_msgTypes[34].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_encore_daemon_daemon_proto_rawDesc), len(file_encore_daemon_daemon_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   51,
+			NumMessages:   60,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

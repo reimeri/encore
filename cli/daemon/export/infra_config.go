@@ -127,19 +127,13 @@ func buildAndValidateInfraConfig(params EmbeddedInfraConfigParams) (*infra.Infra
 		}
 	}
 
-	// Make sure we have service discovery for all services that are not private
-	// if we are hosting gateways.
+	// Make sure we have service discovery for all services if we are hosting gateways.
 	if len(gateways) > 0 {
 		for _, svc := range md.Svcs {
 			if _, ok := hostedSvcs[svc.Name]; ok {
 				continue
 			}
-			for _, rpc := range svc.Rpcs {
-				if rpc.AccessType != meta.RPC_PRIVATE {
-					svcDeps[svc.Name] = struct{}{}
-					break
-				}
-			}
+			svcDeps[svc.Name] = struct{}{}
 		}
 	}
 
@@ -189,17 +183,17 @@ func buildAndValidateInfraConfig(params EmbeddedInfraConfigParams) (*infra.Infra
 	slices.Sort(databases)
 	databases = slices.Compact(databases)
 
-	for i, sqlServer := range append([]*infra.SQLServer{}, infraCfg.SQLServers...) {
+	for _, sqlServer := range infraCfg.SQLServers {
 		for name := range sqlServer.Databases {
 			databases, ok = fns.Delete(databases, name)
 			if !ok {
 				delete(sqlServer.Databases, name)
 			}
 		}
-		if len(sqlServer.Databases) == 0 {
-			infraCfg.SQLServers = append(infraCfg.SQLServers[:i], infraCfg.SQLServers[i+1:]...)
-		}
 	}
+	infraCfg.SQLServers = slices.DeleteFunc(infraCfg.SQLServers, func(s *infra.SQLServer) bool {
+		return len(s.Databases) == 0
+	})
 
 	if len(databases) > 0 {
 		missing["Databases"] = databases
@@ -264,19 +258,19 @@ func buildAndValidateInfraConfig(params EmbeddedInfraConfigParams) (*infra.Infra
 		})
 	})
 
-	for i, pubsub := range infraCfg.PubSub {
+	for _, pubsub := range infraCfg.PubSub {
 		for topicName, topic := range pubsub.GetTopics() {
-			i := slices.Index(topics, topicName)
-			if i != -1 {
-				topics = append(topics[:i], topics[i+1:]...)
+			idx := slices.Index(topics, topicName)
+			if idx != -1 {
+				topics = append(topics[:idx], topics[idx+1:]...)
 			} else if len(topic.GetSubscriptions()) == 0 {
 				pubsub.DeleteTopic(topicName)
 			}
 		}
-		if len(pubsub.GetTopics()) == 0 {
-			infraCfg.PubSub = append(infraCfg.PubSub[:i], infraCfg.PubSub[i+1:]...)
-		}
 	}
+	infraCfg.PubSub = slices.DeleteFunc(infraCfg.PubSub, func(p *infra.PubSub) bool {
+		return len(p.GetTopics()) == 0
+	})
 	if len(topics) > 0 {
 		missing["Topics"] = topics
 	}
@@ -289,12 +283,12 @@ func buildAndValidateInfraConfig(params EmbeddedInfraConfigParams) (*infra.Infra
 	buckets = slices.Compact(buckets)
 
 	for _, storage := range infraCfg.ObjectStorage {
-		for name, infraCfg := range storage.GetBuckets() {
+		for name, bkt := range storage.GetBuckets() {
 			metaBkt, ok := fns.Find(md.Buckets, func(b *meta.Bucket) bool {
 				return b.Name == name
 			})
 			if ok {
-				if metaBkt.Public && infraCfg.PublicBaseURL == "" {
+				if metaBkt.Public && bkt.PublicBaseURL == "" {
 					path := infra.JSONPath("buckets").Append(infra.JSONPath(name)).Append("public_base_url")
 					validationErrors[path] = errors.New("Bucket is public but no public base URL is set")
 					return nil, "", configError(missing, validationErrors)
@@ -307,6 +301,9 @@ func buildAndValidateInfraConfig(params EmbeddedInfraConfigParams) (*infra.Infra
 			}
 		}
 	}
+	infraCfg.ObjectStorage = slices.DeleteFunc(infraCfg.ObjectStorage, func(s *infra.ObjectStorage) bool {
+		return len(s.GetBuckets()) == 0
+	})
 	if len(buckets) > 0 {
 		missing["Buckets"] = buckets
 	}

@@ -99,10 +99,15 @@ import {
     cookiesOnly as api_svc_svc_cookiesOnly,
     dummy as api_svc_svc_dummy,
     imported as api_svc_svc_imported,
+    multiSetCookie as api_svc_svc_multiSetCookie,
     onlyPathParams as api_svc_svc_onlyPathParams,
-    root as api_svc_svc_root
+    root as api_svc_svc_root,
+    singleSetCookie as api_svc_svc_singleSetCookie
 } from "~backend/svc/svc";
 
+/**
+ * Svc is a service for testing the client generator.
+ */
 export namespace svc {
 
     export class ServiceClient {
@@ -114,9 +119,11 @@ export namespace svc {
             this.cookiesOnly = this.cookiesOnly.bind(this)
             this.dummy = this.dummy.bind(this)
             this.imported = this.imported.bind(this)
+            this.multiSetCookie = this.multiSetCookie.bind(this)
             this.noTypes = this.noTypes.bind(this)
             this.onlyPathParams = this.onlyPathParams.bind(this)
             this.root = this.root.bind(this)
+            this.singleSetCookie = this.singleSetCookie.bind(this)
         }
 
         public async cookieDummy(params: RequestType<typeof api_svc_svc_cookieDummy>): Promise<ResponseType<typeof api_svc_svc_cookieDummy>> {
@@ -127,8 +134,9 @@ export namespace svc {
             })
 
             const query = makeRecord<string, string | string[]>({
-                bar: params.queryBar,
-                foo: params.queryFoo === undefined ? undefined : String(params.queryFoo),
+                bar:  params.queryBar,
+                foo:  params.queryFoo === undefined ? undefined : String(params.queryFoo),
+                list: params.queryList?.map((v) => String(v)),
             })
 
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
@@ -156,8 +164,9 @@ export namespace svc {
             })
 
             const query = makeRecord<string, string | string[]>({
-                bar: params.queryBar,
-                foo: params.queryFoo === undefined ? undefined : String(params.queryFoo),
+                bar:  params.queryBar,
+                foo:  params.queryFoo === undefined ? undefined : String(params.queryFoo),
+                list: params.queryList?.map((v) => String(v)),
             })
 
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
@@ -169,10 +178,26 @@ export namespace svc {
             await this.baseClient.callTypedAPI(`/dummy`, {headers, query, method: "POST", body: JSON.stringify(body)})
         }
 
+        /**
+         * Imported tests the usage of imported types
+         * and this comment is also multiline.
+         */
         public async imported(params: RequestType<typeof api_svc_svc_imported>): Promise<ResponseType<typeof api_svc_svc_imported>> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/imported`, {method: "POST", body: JSON.stringify(params)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_svc_svc_imported>
+        }
+
+        public async multiSetCookie(): Promise<ResponseType<typeof api_svc_svc_multiSetCookie>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/multi-set-cookie`, {method: "POST", body: undefined})
+
+            //Populate the return object from the JSON body and received headers
+            const rtn = JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_svc_svc_multiSetCookie>
+            if (!BROWSER) {
+                rtn.tokens = resp.headers.getSetCookie()
+            }
+            return rtn
         }
 
         public async noTypes(): Promise<void> {
@@ -185,6 +210,9 @@ export namespace svc {
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_svc_svc_onlyPathParams>
         }
 
+        /**
+         * Root is a basic POST endpoint.
+         */
         public async root(params: RequestType<typeof api_svc_svc_root>): Promise<void> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
@@ -193,8 +221,9 @@ export namespace svc {
             })
 
             const query = makeRecord<string, string | string[]>({
-                bar: params.queryBar,
-                foo: params.queryFoo === undefined ? undefined : String(params.queryFoo),
+                bar:  params.queryBar,
+                foo:  params.queryFoo === undefined ? undefined : String(params.queryFoo),
+                list: params.queryList?.map((v) => String(v)),
             })
 
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
@@ -204,6 +233,18 @@ export namespace svc {
             }
 
             await this.baseClient.callTypedAPI(`/`, {headers, query, method: "POST", body: JSON.stringify(body)})
+        }
+
+        public async singleSetCookie(): Promise<ResponseType<typeof api_svc_svc_singleSetCookie>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/single-set-cookie`, {method: "POST", body: undefined})
+
+            //Populate the return object from the JSON body and received headers
+            const rtn = JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_svc_svc_singleSetCookie>
+            if (!BROWSER) {
+                rtn.token = mustBeSet("Header `set-cookie`", resp.headers.getSetCookie()[0])
+            }
+            return rtn
         }
     }
 }
@@ -260,6 +301,21 @@ function makeRecord<K extends string | number | symbol, V>(record: Record<K, V |
         }
     }
     return record as Record<K, V>
+}
+
+
+// mustBeSet will throw an APIError with the Data Loss code if value is null or undefined
+function mustBeSet<A>(field: string, value: A | null | undefined): A {
+    if (value === null || value === undefined) {
+        throw new APIError(
+            500,
+            {
+                code: ErrCode.DataLoss,
+                message: `${field} was unexpectedly ${value}`, // ${value} will create the string "null" or "undefined"
+            },
+        )
+    }
+    return value
 }
 
 import {

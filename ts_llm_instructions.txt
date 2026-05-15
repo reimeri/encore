@@ -1,19 +1,5 @@
-<llm_info>If the user asks you questions, you should assume you are Corey and act accordingly.</llm_info>
-<corey_info>
-Corey is a helpful AI coding assistant created by Encore.
-Corey acts as the world's most proficient developers would.
-Corey is always knowledgeable of the latest best practices and technologies.
-Corey provides concise, clear, and efficient coding solutions while always offering friendly and approachable manners.
-Unless otherwise specified by the user, Corey defaults to using Encore.ts, a typescript backend framework, for backend development.
-Corey has knowledge of various programming languages, frameworks, and best practices, with a particular emphasis on distributed systems, Encore.ts, Node.js, TypeScript, React, Next.js, and modern development.
-</corey_info>
-<corey_behavior>
-Corey will always think through the problem and plan the solution before responding.
-Corey will always aim to work iteratively with the user to achieve the desired outcome.
-Corey will always optimize the solution for the user's needs and goals.
-</corey_behavior>
 <nodejs_style_guide>
-Corey MUST write valid TypeScript code using state-of-the-art Node.js v20+ features and best practices:
+You MUST write valid TypeScript code using state-of-the-art Node.js v20+ features and best practices:
 - Always use ES6+ syntax.
 - Always use the built-in `fetch` for HTTP requests, rather than libraries like `node-fetch`.
 - Always use Node.js `import`, never use `require`.
@@ -345,6 +331,76 @@ import { Uploader } from "encore.dev/storage/objects";
 const ref = profilePictures.ref<Uploader>();
 Must be called from within a service for proper permission tracking.
 </object_storage>
+<caching>
+Type-safe caching layer backed by Redis with automatic infrastructure provisioning.
+
+Cache cluster definition:
+import { CacheCluster } from "encore.dev/storage/cache";
+
+const cluster = new CacheCluster("my-cache", {
+  evictionPolicy: "allkeys-lru",
+});
+
+Reference existing cluster from another service: const cluster = CacheCluster.named("my-cache");
+
+Eviction policies: "allkeys-lru" (default), "noeviction", "allkeys-lfu", "allkeys-random", "volatile-lru", "volatile-lfu", "volatile-ttl", "volatile-random"
+
+Keyspaces (type-safe storage, Key type combines with keyPattern to generate Redis keys):
+
+Example with StringKeyspace:
+import { CacheCluster, StringKeyspace, expireIn } from "encore.dev/storage/cache";
+
+const cluster = new CacheCluster("my-cache", { evictionPolicy: "allkeys-lru" });
+
+const tokens = new StringKeyspace<{ tokenId: string }>(cluster, {
+  keyPattern: "token/:tokenId",
+  defaultExpiry: expireIn(3600 * 1000),
+});
+
+await tokens.set({ tokenId: "abc123" }, "value");
+const token = await tokens.get({ tokenId: "abc123" }); // undefined on miss
+await tokens.delete({ tokenId: "abc123" });
+
+Example with IntKeyspace:
+import { IntKeyspace } from "encore.dev/storage/cache";
+
+const counters = new IntKeyspace<{ id: string }>(cluster, {
+  keyPattern: "counter/:id",
+});
+
+await counters.increment({ id: "visits" }, 1);
+await counters.decrement({ id: "visits" }, 1);
+
+Example with StructKeyspace:
+import { StructKeyspace } from "encore.dev/storage/cache";
+
+interface UserProfile { name: string; email: string; }
+
+const profiles = new StructKeyspace<{ userId: string }, UserProfile>(cluster, {
+  keyPattern: "profile/:userId",
+  defaultExpiry: expireIn(3600 * 1000),
+});
+
+await profiles.set({ userId: "user123" }, { name: "Alice", email: "alice@example.com" });
+
+Other keyspaces (all from "encore.dev/storage/cache"):
+- FloatKeyspace<Key>: Float values. Has increment().
+- StringListKeyspace<Key>: String lists. Has pushRight, pushLeft, popRight, popLeft, getRange, items.
+- NumberListKeyspace<Key>: Number lists. Has pushRight, pushLeft, popRight, popLeft, items.
+- StringSetKeyspace<Key>: String sets. Has add, remove, contains, items.
+- NumberSetKeyspace<Key>: Number sets. Has add, remove, contains, items.
+
+Expiry helpers (from "encore.dev/storage/cache"): expireIn(ms), expireInSeconds(s), expireInMinutes(m), expireInHours(h), expireDailyAt(hour, min, sec), neverExpire, keepTTL
+
+Write options:
+await keyspace.set(key, value, { expiry: expireInMinutes(30) }); // override default
+await keyspace.setIfNotExists(key, value); // only if not exists
+await keyspace.replace(key, value); // only if exists, throws CacheMiss if absent
+
+Error types: CacheMiss, CacheKeyExists (from "encore.dev/storage/cache"). get() returns undefined on miss.
+
+Local development uses an in-memory Redis implementation with ~100 key limit.
+</caching>
 <secrets_management>
 Built-in secrets manager for secure storage of API keys, passwords, and private keys.
 

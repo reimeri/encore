@@ -20,6 +20,7 @@ use crate::encore::runtime::v1 as runtimepb;
 
 pub mod api;
 mod base32;
+pub mod cache;
 pub mod error;
 pub mod infracfg;
 pub mod log;
@@ -33,6 +34,7 @@ pub mod proccfg;
 pub mod pubsub;
 pub mod runtime_config;
 pub mod secrets;
+pub mod shutdown;
 pub mod sqldb;
 mod trace;
 
@@ -207,6 +209,7 @@ pub struct Runtime {
     pubsub: pubsub::Manager,
     secrets: secrets::Manager,
     sqldb: sqldb::Manager,
+    cache: cache::Manager,
     objects: objects::Manager,
     api: api::Manager,
     app_meta: meta::AppMeta,
@@ -214,6 +217,8 @@ pub struct Runtime {
     runtime: tokio::runtime::Runtime,
     metrics: metrics::Manager,
     runtime_config: runtime_config::RuntimeConfig,
+    shutdown_config: shutdown::ShutdownConfig,
+    tracer_flush: std::sync::Mutex<Option<trace::TracerFlush>>,
 }
 
 impl Runtime {
@@ -227,7 +232,9 @@ impl Runtime {
         testing: bool,
     ) -> anyhow::Result<Self> {
         // Initialize OpenSSL system root certificates, so that libraries can find them.
-        openssl_probe::init_ssl_cert_env_vars();
+        unsafe {
+            openssl_probe::init_openssl_env_vars();
+        }
 
         let tokio_rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -245,6 +252,8 @@ impl Runtime {
         let mut deployment = cfg.deployment.take().unwrap_or_default();
         let service_discovery = deployment.service_discovery.take().unwrap_or_default();
         let observability = deployment.observability.take().unwrap_or_default();
+        let shutdown_config =
+            shutdown::ShutdownConfig::from_proto(deployment.graceful_shutdown.take());
 
         let http_client = reqwest::Client::builder()
             .build()
@@ -269,7 +278,7 @@ impl Runtime {
         // Set up observability.
         let disable_tracing =
             testing || std::env::var("ENCORE_NOTRACE").is_ok_and(|v| !v.is_empty());
-        let tracer = if !disable_tracing {
+        let (tracer, tracer_flush) = if !disable_tracing {
             let trace_cfg = observability
                 .tracing
                 .into_iter()
@@ -304,14 +313,14 @@ impl Runtime {
                         platform_validator: platform_validator.clone(),
                     };
 
-                    let (tracer, reporter) = trace::streaming_tracer(http_client.clone(), config);
-                    tokio_rt.spawn(reporter.start_reporting());
-                    tracer
+                    let (tracer, flush) =
+                        trace::streaming_tracer(http_client.clone(), config, tokio_rt.handle());
+                    (tracer, Some(flush))
                 }
-                None => trace::Tracer::noop(),
+                None => (trace::Tracer::noop(), None),
             }
         } else {
-            trace::Tracer::noop()
+            (trace::Tracer::noop(), None)
         };
 
         log::set_tracer(tracer.clone());
@@ -362,6 +371,17 @@ impl Runtime {
         }
         .build()
         .context("unable to initialize sqldb proxy")?;
+
+        let cache = cache::ManagerConfig {
+            clusters: resources.redis_clusters,
+            creds: &creds,
+            secrets: &secrets,
+            tracer: tracer.clone(),
+            testing,
+            runtime: tokio_rt.handle().clone(),
+        }
+        .build()
+        .context("unable to initialize cache manager")?;
 
         // Determine the compute configuration.
         let compute = {
@@ -427,6 +447,7 @@ impl Runtime {
             pubsub,
             secrets,
             sqldb,
+            cache,
             objects,
             api,
             app_meta,
@@ -434,6 +455,8 @@ impl Runtime {
             runtime: tokio_rt,
             metrics: metrics_manager,
             runtime_config,
+            shutdown_config,
+            tracer_flush: std::sync::Mutex::new(tracer_flush),
         })
     }
 
@@ -450,6 +473,11 @@ impl Runtime {
     #[inline]
     pub fn sqldb(&self) -> &sqldb::Manager {
         &self.sqldb
+    }
+
+    #[inline]
+    pub fn cache(&self) -> &cache::Manager {
+        &self.cache
     }
 
     #[inline]
@@ -485,10 +513,59 @@ impl Runtime {
     #[inline]
     pub fn run_blocking(&self) {
         self.runtime.block_on(async move {
-            let api_handle = self.api().start_serving();
+            // Start the shutdown orchestrator (waits for signal in background).
+            let shutdown = shutdown::run(self.shutdown_config.clone()).await;
 
-            if let Err(err) = api_handle.await {
-                ::log::error!("failed to start serving: {:?}", err);
+            // Start the API server with the shutdown handle.
+            let api_handle = self.api().start_serving(shutdown.clone());
+
+            // Wait for shutdown signal.
+            shutdown.cancelled().await;
+
+            // K8s grace period: healthz is already returning 503, but keep
+            // accepting requests while load balancers propagate the change.
+            if !self.shutdown_config.keep_accepting.is_zero() {
+                ::log::info!(
+                    "keeping accepting requests for {:?} while load balancers update",
+                    self.shutdown_config.keep_accepting
+                );
+                tokio::time::sleep(self.shutdown_config.keep_accepting).await;
+            }
+
+            // Stop pubsub subscriptions from fetching new messages,
+            // then wait for in-flight message handlers to finish.
+            self.pubsub.cancel_token().cancel();
+            self.pubsub.drain().await;
+
+            // Wait for the API server to drain (gateway drains first, then axum).
+            let serve_result = match api_handle.await {
+                Ok(inner) => inner,
+                Err(err) => Err(anyhow::anyhow!("serving task panicked: {:?}", err)),
+            };
+
+            // Flush observability data.
+            self.metrics().collect_and_export().await;
+            let tracer_flush = self
+                .tracer_flush
+                .lock()
+                .expect("tracer_flush lock poisoned")
+                .take();
+            if let Some(flush) = tracer_flush {
+                flush.flush().await;
+            }
+
+            // Exit. We can't just return here because the tokio runtime
+            // (and the orchestrator's force-exit task) is kept alive by Arc<Runtime>
+            // in the JS layer's static OnceLock.
+            match serve_result {
+                Ok(()) => {
+                    ::log::info!("shutdown complete");
+                    std::process::exit(0);
+                }
+                Err(err) => {
+                    ::log::error!("server failed: {:?}", err);
+                    std::process::exit(1);
+                }
             }
         });
     }

@@ -138,6 +138,7 @@ func (d *Driver) CreateCluster(ctx context.Context, p *sqldb.CreateParams, log z
 			"-e", "POSTGRES_PASSWORD=" + DefaultSuperuserPassword,
 			"-e", "POSTGRES_DB=" + DefaultRootDatabase,
 			"-e", "PGDATA=" + defaultDataDir,
+			"-e", "AUTO_PG_UPGRADE=1",
 			"--name", cnames[0],
 		}
 		if p.Memfs {
@@ -306,11 +307,11 @@ func (d *Driver) DestroyCluster(ctx context.Context, id sqldb.ClusterID) error {
 func (d *Driver) DestroyNamespaceData(ctx context.Context, ns *namespace.Namespace) error {
 	candidates := clusterVolumeNames(ns)
 	for _, c := range candidates {
-		if err := exec.CommandContext(ctx, "docker", "volume", "rm", "-f", c).Run(); err != nil {
+		if out, err := exec.CommandContext(ctx, "docker", "volume", "rm", "-f", c).CombinedOutput(); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "no such volume") {
 				continue
 			}
-			return errors.Wrapf(err, "could not delete volume %s", c)
+			return errors.Wrapf(err, "could not delete volume %s: %s", c, string(out))
 		}
 	}
 	return nil
@@ -382,7 +383,7 @@ func PullImage(ctx context.Context) error {
 	return cmd.Run()
 }
 
-const Image = "encoredotdev/postgres:15"
+const Image = "encoredotdev/postgres:18"
 
 func isDockerRunning(ctx context.Context) bool {
 	err := exec.CommandContext(ctx, "docker", "info").Run()

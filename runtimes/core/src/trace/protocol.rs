@@ -96,6 +96,24 @@ impl Tracer {
         }
     }
 
+    /// Determines whether a new pubsub subscription trace should be sampled.
+    /// Returns false if this is a noop tracer (no sender).
+    ///
+    /// Looks up the sampling rate: subscription → topic → service → default.
+    /// If no match is found, always sample.
+    pub fn should_sample_pubsub(&self, service: &str, topic: &str, subscription: &str) -> bool {
+        if self.tx.is_none() {
+            return false;
+        }
+        match self
+            .sampling_rate_config
+            .lookup_pubsub(service, topic, subscription)
+        {
+            None => true,
+            Some(rate) => rand::random::<f64>() < rate,
+        }
+    }
+
     /// Determines whether a new trace should be sampled based on the default sampling rate.
     /// Returns false if this is a noop tracer (no sender).
     ///
@@ -139,6 +157,9 @@ impl Tracer {
         let Some(source) = data.source else {
             return;
         };
+        if !source.traced {
+            return;
+        }
 
         let fields_count = data.fields.as_ref().map(|fields| fields.len()).unwrap_or(0);
 
@@ -949,6 +970,76 @@ impl Tracer {
         }
 
         _ = self.send(EventType::BucketObjectGetAttrsEnd, data.source.span, eb);
+    }
+}
+
+/// Cache operation result for tracing.
+/// Values must match the Go trace parser's CacheOp_Result enum.
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum CacheOpResult {
+    Unknown = 0,
+    Ok = 1,
+    NoSuchKey = 2,
+    Conflict = 3,
+    Err = 4,
+}
+
+pub struct CacheCallStartData<'a> {
+    pub source: &'a Request,
+    pub operation: &'static str,
+    pub is_write: bool,
+    pub keys: &'a [&'a str],
+}
+
+pub struct CacheCallEndData<'a, E> {
+    pub start_id: Option<TraceEventId>,
+    pub source: &'a Request,
+    pub result: CacheOpResult,
+    pub error: Option<&'a E>,
+}
+
+impl Tracer {
+    #[inline]
+    pub fn cache_call_start(&self, data: CacheCallStartData) -> Option<TraceEventId> {
+        if !data.source.traced {
+            return None;
+        }
+        let mut eb = BasicEventData {
+            correlation_event_id: None,
+            extra_space: 64 + data.operation.len() + data.keys.len() * 32,
+        }
+        .into_eb();
+
+        eb.str(data.operation);
+        eb.bool(data.is_write);
+        eb.nyi_stack_pcs();
+        eb.uvarint(data.keys.len() as u64);
+        for key in data.keys {
+            eb.str(key);
+        }
+
+        Some(self.send(EventType::CacheCallStart, data.source.span, eb))
+    }
+
+    #[inline]
+    pub fn cache_call_end<E>(&self, data: CacheCallEndData<E>)
+    where
+        E: std::fmt::Display,
+    {
+        let Some(start_id) = data.start_id else {
+            return;
+        };
+        let mut eb = BasicEventData {
+            correlation_event_id: Some(start_id),
+            extra_space: 32,
+        }
+        .into_eb();
+
+        eb.byte(data.result as u8);
+        eb.err_with_legacy_stack(data.error);
+
+        _ = self.send(EventType::CacheCallEnd, data.source.span, eb);
     }
 }
 

@@ -57,6 +57,11 @@ const (
 	// (I suspect for the load balancers) and so the span ID in the traceparent is not the same as the span ID
 	// need to create a child span.
 	eventTraceStateSpanIDKey = "encore/span-id"
+
+	// eventTraceStateSampledKey propagates the sampling decision via tracestate.
+	// This is needed because GCP Cloud Run can modify the traceparent sampled flag
+	// between Cloud Run instances, overriding our sampling decision.
+	eventTraceStateSampledKey = "encore/sampled"
 )
 
 // execContext contains the data needed for executing a request.
@@ -67,6 +72,11 @@ type execContext struct {
 	auth   model.AuthInfo
 
 	callMeta CallMeta
+
+	// traceSampledPrecomputed is true when callMeta.TraceSampled has been
+	// pre-computed by processRequest. When set, beginRequest uses it directly
+	// instead of re-evaluating the sampling decision.
+	traceSampledPrecomputed bool
 }
 
 type IncomingContext struct {
@@ -553,7 +563,7 @@ func (s *Server) newExecContext(ctx context.Context, ps UnnamedParams, callMeta 
 			UserData: callMeta.Internal.AuthData,
 		}
 	}
-	return execContext{s, ctx, ps, auth, callMeta}
+	return execContext{s, ctx, ps, auth, callMeta, false}
 }
 
 func (s *Server) NewIncomingContext(w http.ResponseWriter, req *http.Request, ps UnnamedParams, callMeta CallMeta) IncomingContext {

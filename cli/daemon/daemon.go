@@ -4,13 +4,13 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/cockroachdb/errors"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -49,7 +49,7 @@ type Server struct {
 	mcp  *mcp.Manager
 
 	mu      sync.Mutex
-	streams map[string]*streamLog // run id -> stream
+	streams map[string]runStreamSink // run id -> stream
 
 	availableVerInit sync.Once
 	availableVer     atomic.Value // string
@@ -69,7 +69,7 @@ func New(appsMgr *apps.Manager, mgr *run.Manager, cm *sqldb.ClusterManager, sm *
 		sm:      sm,
 		ns:      ns,
 		mcp:     mcp,
-		streams: make(map[string]*streamLog),
+		streams: make(map[string]runStreamSink),
 
 		appDebouncers: make(map[*apps.Instance]*regenerateCodeDebouncer),
 	}
@@ -95,13 +95,22 @@ func (s *Server) GenClient(ctx context.Context, params *daemonpb.GenClientReques
 	}
 
 	if envName == "local" {
-		// Determine the app root
-		app, err := s.apps.FindLatestByPlatformOrLocalID(params.AppId)
-		if errors.Is(err, apps.ErrNotFound) {
-			return nil, status.Errorf(codes.FailedPrecondition, "the app %s must be run locally before generating a client for the 'local' environment.",
-				params.AppId)
-		} else if err != nil {
-			return nil, status.Errorf(codes.Internal, "unable to query app info: %v", err)
+		var app *apps.Instance
+		var err error
+		// If the command was called with an app id, find the app instance by id.
+		if params.AppRoot == "" {
+			app, err = s.apps.FindLatestByPlatformOrLocalID(params.AppId)
+			if errors.Is(err, apps.ErrNotFound) {
+				return nil, status.Errorf(codes.FailedPrecondition, "the app %s must be run locally before generating a client for the 'local' environment.",
+					params.AppId)
+			} else if err != nil {
+				return nil, status.Errorf(codes.Internal, "unable to query app info: %v", err)
+			}
+		} else { // Otherwise, track the app by its root directory.
+			app, err = s.apps.Track(params.AppRoot)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "unable to query app info: %v", err)
+			}
 		}
 
 		// Get the app metadata
@@ -252,6 +261,15 @@ var errNotLinked = (func() error {
 
 type commandStream interface {
 	Send(msg *daemonpb.CommandMessage) error
+}
+
+// runStreamSink is the subset of *streamLog used by the run.EventListener
+// implementation on Server. Different RPC handlers can plug in their own
+// sink as long as they can render stdout/stderr bytes and errlist errors.
+type runStreamSink interface {
+	Stdout(buffer bool) io.Writer
+	Stderr(buffer bool) io.Writer
+	Error(err *errlist.List)
 }
 
 func newStreamLogger(slog *streamLog) zerolog.Logger {

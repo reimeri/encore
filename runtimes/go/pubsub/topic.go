@@ -3,7 +3,6 @@ package pubsub
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 
 	"encore.dev/appruntime/exported/config"
 	"encore.dev/appruntime/exported/model"
@@ -36,6 +35,7 @@ func newTopic[T any](mgr *Manager, name string, cfg TopicConfig) *Topic[T] {
 	if mgr.static.Testing {
 		return &Topic[T]{
 			appCfg:         cfg,
+			staticCfg:      mgr.static.PubsubTopics[name],
 			mgr:            mgr,
 			runtimeCfg:     &config.PubsubTopic{EncoreName: name},
 			topic:          test.NewTopic[T](mgr.ts, name),
@@ -158,23 +158,32 @@ func (t *Topic[T]) Publish(ctx context.Context, msg T) (id string, err error) {
 			attrs[extCorrelationIDAttribute] = req.TraceID.String()
 		}
 
-		attrs[parentSampledAttribute] = strconv.FormatBool(req.Traced)
+		// If this is a traced platform request, propagate the sampled flag so that
+		// subscribers always trace platform-initiated messages.
+		// We check both FromEncorePlatform and Traced so that scheduled cron jobs
+		// that were sampled out don't force-trace their downstream subscribers.
+		if req.RPCData != nil && req.RPCData.FromEncorePlatform && req.Traced {
+			attrs[forceTraceAttribute] = "true"
+		}
 	}
 
 	// Start the trace span
 	curr := t.mgr.rt.Current()
 	var startEventID trace2.EventID
 	if curr.Req != nil && curr.Trace != nil {
+		desc := &model.PubSubTopicDesc{
+			Topic: t.runtimeCfg.EncoreName,
+		}
+		if t.staticCfg != nil {
+			desc.ScrubPaths = t.staticCfg.ScrubPaths
+		}
 		startEventID = curr.Trace.PubsubPublishStart(trace2.PubsubPublishStartParams{
 			EventParams: trace2.EventParams{
 				TraceID: curr.Req.TraceID,
 				SpanID:  curr.Req.SpanID,
 				Goid:    curr.Goctr,
 			},
-			Desc: &model.PubSubTopicDesc{
-				Topic:      t.runtimeCfg.EncoreName,
-				ScrubPaths: t.staticCfg.ScrubPaths,
-			},
+			Desc:    desc,
 			Message: data,
 			Stack:   stack.Build(1),
 		})

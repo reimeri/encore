@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -256,25 +257,32 @@ func (tc *tarCopier) MkdirAll(dstPath ImagePath, mode fs.FileMode) (err error) {
 	dstPath = ImagePath(filepath.ToSlash(dstPath.String()))
 	dstPath = dstPath.Clean()
 
+	var dirs []ImagePath
 	for dstPath != "." && dstPath != "/" {
 		if !tc.seenDirs[dstPath] {
-			modTime := time.Time{}
-			if tc.fileTimes != nil {
-				modTime = *tc.fileTimes
-			}
-			header := &tar.Header{
-				Typeflag: tar.TypeDir,
-				ModTime:  modTime,
-				Name:     tarHeaderName(dstPath, true),
-				Mode:     int64(mode.Perm()),
-			}
-			tc.entries = append(tc.entries, &tarEntry{
-				header: header,
-			})
+			dirs = append(dirs, dstPath)
 			tc.seenDirs[dstPath] = true
 		}
-
 		dstPath = dstPath.Dir()
+	}
+
+	// Sort by name so parent directories appear before children.
+	slices.Sort(dirs)
+
+	for _, d := range dirs {
+		modTime := time.Time{}
+		if tc.fileTimes != nil {
+			modTime = *tc.fileTimes
+		}
+		header := &tar.Header{
+			Typeflag: tar.TypeDir,
+			ModTime:  modTime,
+			Name:     tarHeaderName(d, true),
+			Mode:     int64(mode.Perm()),
+		}
+		tc.entries = append(tc.entries, &tarEntry{
+			header: header,
+		})
 	}
 
 	return nil

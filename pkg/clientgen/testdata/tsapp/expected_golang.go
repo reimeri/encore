@@ -96,39 +96,47 @@ type SvcAuthParams struct {
 	CookieValue string `cookie:"actual-cookie,optional" encore:"optional"`
 }
 
+// Request is the request type for testing doc comments on interfaces.
 type SvcRequest struct {
 	Foo        float64 `encore:"optional"` // Foo is good
 	Baz        string  // Baz is better
 	QueryFoo   bool    `encore:"optional" query:"foo,optional"`
 	QueryBar   string  `encore:"optional" query:"bar,optional"`
+	QueryList  []bool  `encore:"optional" query:"list,optional"`
 	HeaderBaz  string  `encore:"optional" header:"baz,optional"`
 	HeaderNum  float64 `encore:"optional" header:"num,optional"`
 	CookieQux  string  `cookie:"qux,optional" encore:"optional"`
 	CookieQuux float64 `cookie:"quux,optional" encore:"optional"`
 }
 
+// Request is the request type for testing doc comments on interfaces.
 type SvcRequest struct {
 	Foo        float64 `encore:"optional"` // Foo is good
 	Baz        string  // Baz is better
 	QueryFoo   bool    `encore:"optional" query:"foo,optional"`
 	QueryBar   string  `encore:"optional" query:"bar,optional"`
+	QueryList  []bool  `encore:"optional" query:"list,optional"`
 	HeaderBaz  string  `encore:"optional" header:"baz,optional"`
 	HeaderNum  float64 `encore:"optional" header:"num,optional"`
 	CookieQux  string  `cookie:"qux,optional" encore:"optional"`
 	CookieQuux float64 `cookie:"quux,optional" encore:"optional"`
 }
 
+// Request is the request type for testing doc comments on interfaces.
 type SvcRequest struct {
 	Foo        float64 `encore:"optional"` // Foo is good
 	Baz        string  // Baz is better
 	QueryFoo   bool    `encore:"optional" query:"foo,optional"`
 	QueryBar   string  `encore:"optional" query:"bar,optional"`
+	QueryList  []bool  `encore:"optional" query:"list,optional"`
 	HeaderBaz  string  `encore:"optional" header:"baz,optional"`
 	HeaderNum  float64 `encore:"optional" header:"num,optional"`
 	CookieQux  string  `cookie:"qux,optional" encore:"optional"`
 	CookieQuux float64 `cookie:"quux,optional" encore:"optional"`
 }
 
+// Svc is a service for testing the client generator.
+//
 // SvcClient Provides you access to call public and authenticated APIs on svc. The concrete implementation is svcClient.
 // It is setup as an interface allowing you to use GoMock to create mock implementations during tests.
 type SvcClient interface {
@@ -141,10 +149,23 @@ type SvcClient interface {
 		Cookie string `cookie:"cookie"`
 	}, error)
 	Dummy(ctx context.Context, params SvcRequest) error
+
+	// Imported tests the usage of imported types
+	// and this comment is also multiline.
 	Imported(ctx context.Context, params Common_StuffImportedRequest) (Common_StuffImportedResponse, error)
+	MultiSetCookie(ctx context.Context) (struct {
+		Message string
+		Tokens  []string `header:"set-cookie"`
+	}, error)
 	NoTypes(ctx context.Context) error
 	OnlyPathParams(ctx context.Context, pathParam string, pathParam2 string) (Common_StuffImportedResponse, error)
+
+	// Root is a basic POST endpoint.
 	Root(ctx context.Context, params SvcRequest) error
+	SingleSetCookie(ctx context.Context) (struct {
+		Message string
+		Token   string `header:"set-cookie"`
+	}, error)
 }
 
 type svcClient struct {
@@ -165,8 +186,9 @@ func (c *svcClient) CookieDummy(ctx context.Context, params SvcRequest) (resp st
 	}
 
 	queryString := url.Values{
-		"bar": {reqEncoder.FromString(params.queryBar)},
-		"foo": {reqEncoder.FromBool(params.queryFoo)},
+		"bar":  {reqEncoder.FromString(params.queryBar)},
+		"foo":  {reqEncoder.FromBool(params.queryFoo)},
+		"list": reqEncoder.FromBoolList(params.queryList),
 	}
 
 	if reqEncoder.LastError != nil {
@@ -216,8 +238,9 @@ func (c *svcClient) Dummy(ctx context.Context, params SvcRequest) error {
 	}
 
 	queryString := url.Values{
-		"bar": {reqEncoder.FromString(params.queryBar)},
-		"foo": {reqEncoder.FromBool(params.queryFoo)},
+		"bar":  {reqEncoder.FromString(params.queryBar)},
+		"foo":  {reqEncoder.FromBool(params.queryFoo)},
+		"list": reqEncoder.FromBoolList(params.queryList),
 	}
 
 	if reqEncoder.LastError != nil {
@@ -237,10 +260,43 @@ func (c *svcClient) Dummy(ctx context.Context, params SvcRequest) error {
 	return err
 }
 
+// Imported tests the usage of imported types
+// and this comment is also multiline.
 func (c *svcClient) Imported(ctx context.Context, params Common_StuffImportedRequest) (resp Common_StuffImportedResponse, err error) {
 	// Now make the actual call to the API
 	_, err = callAPI(ctx, c.base, "POST", "/imported", nil, params, &resp)
 	if err != nil {
+		return
+	}
+
+	return
+}
+
+func (c *svcClient) MultiSetCookie(ctx context.Context) (resp struct {
+	Message string
+	Tokens  []string `header:"set-cookie"`
+}, err error) {
+	// We only want the response body to marshal into these fields and none of the header fields,
+	// so we'll construct a new struct with only those fields.
+	respBody := struct {
+		Message string `json:"message"`
+	}{}
+
+	// Now make the actual call to the API
+	var respHeaders http.Header
+	respHeaders, err = callAPI(ctx, c.base, "POST", "/multi-set-cookie", nil, nil, &respBody)
+	if err != nil {
+		return
+	}
+
+	// Copy the unmarshalled response body into our response struct
+	respDecoder := &serde{}
+
+	resp.tokens = respDecoder.ToStringList("tokens", respHeaders.Values("set-cookie"), true)
+	resp.message = respBody.message
+
+	if respDecoder.LastError != nil {
+		err = fmt.Errorf("unable to unmarshal headers: %w", respDecoder.LastError)
 		return
 	}
 
@@ -262,6 +318,7 @@ func (c *svcClient) OnlyPathParams(ctx context.Context, pathParam string, pathPa
 	return
 }
 
+// Root is a basic POST endpoint.
 func (c *svcClient) Root(ctx context.Context, params SvcRequest) error {
 	// Convert our params into the objects we need for the request
 	reqEncoder := &serde{}
@@ -272,8 +329,9 @@ func (c *svcClient) Root(ctx context.Context, params SvcRequest) error {
 	}
 
 	queryString := url.Values{
-		"bar": {reqEncoder.FromString(params.queryBar)},
-		"foo": {reqEncoder.FromBool(params.queryFoo)},
+		"bar":  {reqEncoder.FromString(params.queryBar)},
+		"foo":  {reqEncoder.FromBool(params.queryFoo)},
+		"list": reqEncoder.FromBoolList(params.queryList),
 	}
 
 	if reqEncoder.LastError != nil {
@@ -291,6 +349,37 @@ func (c *svcClient) Root(ctx context.Context, params SvcRequest) error {
 
 	_, err := callAPI(ctx, c.base, "POST", fmt.Sprintf("/?%s", queryString.Encode()), headers, body, nil)
 	return err
+}
+
+func (c *svcClient) SingleSetCookie(ctx context.Context) (resp struct {
+	Message string
+	Token   string `header:"set-cookie"`
+}, err error) {
+	// We only want the response body to marshal into these fields and none of the header fields,
+	// so we'll construct a new struct with only those fields.
+	respBody := struct {
+		Message string `json:"message"`
+	}{}
+
+	// Now make the actual call to the API
+	var respHeaders http.Header
+	respHeaders, err = callAPI(ctx, c.base, "POST", "/single-set-cookie", nil, nil, &respBody)
+	if err != nil {
+		return
+	}
+
+	// Copy the unmarshalled response body into our response struct
+	respDecoder := &serde{}
+
+	resp.token = respDecoder.ToString("token", respHeaders.Get("set-cookie"), true)
+	resp.message = respBody.message
+
+	if respDecoder.LastError != nil {
+		err = fmt.Errorf("unable to unmarshal headers: %w", respDecoder.LastError)
+		return
+	}
+
+	return
 }
 
 type Common_StuffImportedRequest struct {
@@ -689,6 +778,33 @@ func (e *serde) FromFloat64(s float64) (v string) {
 func (e *serde) FromBool(s bool) (v string) {
 	e.NonEmptyValues++
 	return strconv.FormatBool(s)
+}
+
+func (e *serde) FromBoolList(s []bool) (v []string) {
+	e.NonEmptyValues++
+	for _, x := range s {
+		v = append(v, e.FromBool(x))
+	}
+	return v
+}
+
+func (e *serde) ToString(field string, s string, required bool) (v string) {
+	if !required && s == "" {
+		return
+	}
+	e.NonEmptyValues++
+	return s
+}
+
+func (e *serde) ToStringList(field string, s []string, required bool) (v []string) {
+	if !required && len(s) == 0 {
+		return
+	}
+	e.NonEmptyValues++
+	for _, x := range s {
+		v = append(v, e.ToString(field, x, required))
+	}
+	return v
 }
 
 // setErr sets the last error within the object if one is not already set

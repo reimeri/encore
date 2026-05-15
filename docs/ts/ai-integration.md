@@ -61,6 +61,8 @@ npx add-skill encoredev/skills --list
 npx add-skill encoredev/skills -a cursor -a claude-code
 ```
 
+The skills package includes a migration skill that can automatically migrate your existing backend to Encore.ts. See the [Migrate using AI agent](/docs/ts/migration/ai-migration) guide to learn more.
+
 ## MCP Server
 
 Encore's [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) server gives AI agents deep introspection into your application: querying databases, calling APIs, inspecting services, and analyzing traces.
@@ -79,14 +81,14 @@ This displays connection information. Keep it running while using your AI tools.
 
 **Quick setup:** Use this button (update `your-app-id` to your actual app ID):
 
-<a href="https://cursor.com/en/install-mcp?name=encore-mcp&config=eyJjb21tYW5kIjoiZW5jb3JlIG1jcCBydW4gLS1hcHA9eW91ci1hcHAtaWQifQ%3D%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Add encore-mcp MCP server to Cursor" height="32" class="noshadow" /></a>
+<a href="https://cursor.com/en/install-mcp?name=encore-local&config=eyJjb21tYW5kIjoiZW5jb3JlIG1jcCBydW4gLS1hcHA9eW91ci1hcHAtaWQifQ%3D%3D"><img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Add encore-local MCP server to Cursor" height="32" class="noshadow" /></a>
 
 **Manual setup:** Create `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "encore-mcp": {
+    "encore-local": {
       "command": "encore",
       "args": ["mcp", "run", "--app=your-app-id"]
     }
@@ -94,17 +96,17 @@ This displays connection information. Keep it running while using your AI tools.
 }
 ```
 
-Find your app ID with `encore app info` or in the [Encore dashboard](https://app.encore.dev).
+Find your app ID in the `encore.app` file or in the [Encore dashboard](https://app.encore.dev).
 
 ### Connect Claude Code
 
 From your Encore app directory:
 
 ```bash
-claude mcp add --transport stdio encore-mcp -- encore mcp run --app=your-app-id
+claude mcp add --transport stdio encore-local -- encore mcp run --app=your-app-id
 ```
 
-Verify with `claude mcp list`. You should see `encore-mcp` in the list.
+Verify with `claude mcp list`. You should see `encore-local` in the list.
 
 ## What AI Can Do
 

@@ -35,6 +35,10 @@ struct SamplingRates {
     endpoint: HashMap<String, f64>,
     /// Rates keyed by service name for API services.
     service: HashMap<String, f64>,
+    /// Rates keyed by "topic.subscription" for pubsub subscriptions.
+    subscription: HashMap<String, f64>,
+    /// Rates keyed by topic name for pubsub topics.
+    topic: HashMap<String, f64>,
     /// Default rate.
     default: Option<f64>,
 }
@@ -53,6 +57,8 @@ impl TraceSamplingConfig {
         let mut default_rate = None;
         let mut endpoint = HashMap::new();
         let mut service = HashMap::new();
+        let mut subscription = HashMap::new();
+        let mut topic = HashMap::new();
 
         for entry in &config {
             let rate = entry.rate;
@@ -65,6 +71,13 @@ impl TraceSamplingConfig {
                     let key = format!("{}.{}", ep.service, ep.endpoint);
                     endpoint.insert(key, rate);
                 }
+                Some(Scope::Topic(t)) => {
+                    topic.insert(t.clone(), rate);
+                }
+                Some(Scope::PubsubSubscription(sub)) => {
+                    let key = format!("{}.{}", sub.topic, sub.subscription);
+                    subscription.insert(key, rate);
+                }
                 None => {}
             }
         }
@@ -76,7 +89,12 @@ impl TraceSamplingConfig {
             }
         }
 
-        if default_rate.is_none() && endpoint.is_empty() && service.is_empty() {
+        if default_rate.is_none()
+            && endpoint.is_empty()
+            && service.is_empty()
+            && subscription.is_empty()
+            && topic.is_empty()
+        {
             return Self { inner: None };
         }
 
@@ -84,6 +102,8 @@ impl TraceSamplingConfig {
             inner: Some(Arc::new(SamplingRates {
                 endpoint,
                 service,
+                subscription,
+                topic,
                 default: default_rate,
             })),
         }
@@ -98,6 +118,21 @@ impl TraceSamplingConfig {
             .endpoint
             .get(&**name)
             .or_else(|| rates.service.get(name.service()))
+            .or_else(|| rates.default.as_ref())
+            .copied()
+    }
+
+    /// Look up the sampling rate for a pubsub subscription.
+    /// Falls back: subscription → topic → service → default.
+    /// Returns None if no config matches (meaning: always sample).
+    pub fn lookup_pubsub(&self, service: &str, topic: &str, subscription: &str) -> Option<f64> {
+        let rates = self.inner.as_ref()?;
+        let key = format!("{}.{}", topic, subscription);
+        rates
+            .subscription
+            .get(&key)
+            .or_else(|| rates.topic.get(topic))
+            .or_else(|| rates.service.get(service))
             .or_else(|| rates.default.as_ref())
             .copied()
     }
@@ -117,14 +152,31 @@ pub struct Reporter {
     anchor: TimeAnchor,
     http_client: reqwest::Client,
     config: ReporterConfig,
+    shutdown: tokio_util::sync::CancellationToken,
+}
+
+/// Handle to force-flush the trace reporter and wait for it to finish.
+pub struct TracerFlush {
+    shutdown: tokio_util::sync::CancellationToken,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl TracerFlush {
+    /// Signal the reporter to flush any buffered events and wait for completion.
+    pub async fn flush(self) {
+        self.shutdown.cancel();
+        let _ = self.handle.await;
+    }
 }
 
 pub fn streaming_tracer(
     http_client: reqwest::Client,
     config: ReporterConfig,
-) -> (Tracer, Reporter) {
+    runtime: &tokio::runtime::Handle,
+) -> (Tracer, TracerFlush) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let tracer = Tracer::new(tx, config.trace_sampling_config.clone());
+    let shutdown = tokio_util::sync::CancellationToken::new();
 
     let anchor = TimeAnchor::new();
     let reporter = Reporter {
@@ -132,8 +184,11 @@ pub fn streaming_tracer(
         anchor,
         http_client,
         config,
+        shutdown: shutdown.clone(),
     };
-    (tracer, reporter)
+    let handle = runtime.spawn(reporter.start_reporting());
+    let flush = TracerFlush { shutdown, handle };
+    (tracer, flush)
 }
 
 #[derive(Debug)]
@@ -193,21 +248,28 @@ impl Reporter {
                                 no_data_timeout = Box::pin(tokio::time::sleep(timeout_duration));
                             }
                             None => {
-                                // The stream is closed. This only happens if all senders have been dropped,
-                                // which should never happen in regular use.
+                                // All senders have been dropped — channel is closed.
                                 return;
                             }
                         }
                     }
                     _ = &mut no_data_timeout => {
-                        // Timeout reached with no new events
-                        if let Some(sender) = body_sender {
-                            // Close the stream and wait for a new event
-                            drop(sender);
-                        }
+                        // Timeout reached with no new events — flush the current batch.
+                        break;
+                    }
+                    _ = self.shutdown.cancelled() => {
+                        // Shutdown requested — flush the current batch and exit.
                         break;
                     }
                 }
+            }
+
+            // Send the current batch (if any) by dropping the sender.
+            drop(body_sender);
+
+            if self.shutdown.is_cancelled() {
+                log::trace!("trace reporter exiting due to shutdown signal");
+                return;
             }
         }
     }
@@ -400,6 +462,7 @@ mod tests {
             rx,
             anchor: TimeAnchor::new(),
             http_client: reqwest::Client::new(),
+            shutdown: tokio_util::sync::CancellationToken::new(),
             config: ReporterConfig {
                 app_id: "test-app".to_string(),
                 env_id: "test-env".to_string(),

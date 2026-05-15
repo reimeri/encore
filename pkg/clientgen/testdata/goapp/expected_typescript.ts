@@ -199,6 +199,9 @@ export namespace products {
     }
 }
 
+/**
+ * Svc is a service for testing the client generator.
+ */
 export namespace svc {
     export interface AllInputTypes<A> {
         /**
@@ -297,11 +300,33 @@ export namespace svc {
         QueryBar?: string
         HeaderBaz?: string
         HeaderInt?: number
+        HeaderSlice: string[]
         /**
          * This is a multiline
          * comment on the raw message!
          */
         Raw: JSONValue
+    }
+
+    export interface ResponseWithSetCookie {
+        Message: string
+        /**
+         * header with a slice value
+         */
+        HeaderSlice: string[]
+
+        /**
+         * set-cookie header
+         */
+        SetCookie: string[]
+    }
+
+    export interface ResponseWithSingleSetCookie {
+        Message: string
+        /**
+         * single set-cookie header value
+         */
+        SetCookie: string
     }
 
     /**
@@ -338,6 +363,8 @@ export namespace svc {
             this.RESTPath = this.RESTPath.bind(this)
             this.Rec = this.Rec.bind(this)
             this.RequestWithAllInputTypes = this.RequestWithAllInputTypes.bind(this)
+            this.SetCookie = this.SetCookie.bind(this)
+            this.SingleSetCookie = this.SingleSetCookie.bind(this)
             this.TupleInputOutput = this.TupleInputOutput.bind(this)
             this.Webhook = this.Webhook.bind(this)
             this.Webhook2 = this.Webhook2.bind(this)
@@ -355,8 +382,9 @@ export namespace svc {
         public async DummyAPI(params: Request): Promise<void> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
-                baz: params.HeaderBaz,
-                int: params.HeaderInt === undefined ? undefined : String(params.HeaderInt),
+                baz:   params.HeaderBaz,
+                int:   params.HeaderInt === undefined ? undefined : String(params.HeaderInt),
+                slice: params.HeaderSlice.map((v) => v).join(", "),
             })
 
             const query = makeRecord<string, string | string[]>({
@@ -475,6 +503,41 @@ export namespace svc {
             //Populate the return object from the JSON body and received headers
             const rtn = await resp.json() as AllInputTypes<number>
             rtn.A = mustBeSet("Header `x-alice`", resp.headers.get("x-alice"))
+            return rtn
+        }
+
+        public async SetCookie(params: GetRequest): Promise<ResponseWithSetCookie> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                boo: String(params.Baz),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/svc.SetCookie`, undefined, {query})
+
+            //Populate the return object from the JSON body and received headers
+            const rtn = await resp.json() as ResponseWithSetCookie
+            rtn.HeaderSlice = [mustBeSet("Header `slice`", resp.headers.get("slice"))]
+            if (!BROWSER) {
+                rtn.SetCookie = resp.headers.getSetCookie()
+            }
+            return rtn
+        }
+
+        public async SingleSetCookie(params: GetRequest): Promise<ResponseWithSingleSetCookie> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                boo: String(params.Baz),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/svc.SingleSetCookie`, undefined, {query})
+
+            //Populate the return object from the JSON body and received headers
+            const rtn = await resp.json() as ResponseWithSingleSetCookie
+            if (!BROWSER) {
+                rtn.SetCookie = mustBeSet("Header `set-cookie`", resp.headers.getSetCookie()[0])
+            }
             return rtn
         }
 

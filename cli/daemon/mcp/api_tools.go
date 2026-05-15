@@ -16,6 +16,7 @@ import (
 
 	"encr.dev/cli/daemon/run"
 	"encr.dev/pkg/builder"
+	"encr.dev/pkg/schemautil"
 	metav1 "encr.dev/proto/encore/parser/meta/v1"
 	schema "encr.dev/proto/encore/parser/schema/v1"
 )
@@ -171,6 +172,14 @@ func (m *Manager) callEndpoint(ctx context.Context, request mcp.CallToolRequest)
 		return nil, fmt.Errorf("API call failed: %w", err)
 	}
 
+	// Convert body to string
+	if body, ok := result["body"]; ok {
+		switch v := body.(type) {
+		case []byte:
+			result["body"] = string(v)
+		}
+	}
+
 	// Serialize the response
 	jsonData, err := json.Marshal(result)
 	if err != nil {
@@ -324,14 +333,14 @@ func (m *Manager) getEndpoints(ctx context.Context, request mcp.CallToolRequest)
 
 					// For request and response schemas
 					if rpc.RequestSchema != nil {
-						str, _ := NamedOrInlineStruct(declByID, rpc.RequestSchema)
-						qry, headers, cookies, body := StructBits(str, rpc.HttpMethods[0], false, false, true)
+						str, _ := schemautil.NamedOrInlineStruct(declByID, rpc.RequestSchema)
+						qry, headers, cookies, body := schemautil.StructBits(str, rpc.HttpMethods[0], false, false, true)
 						schemas["request_schema"] = strings.Join([]string{"{", qry, headers, cookies, body, "}"}, "")
 					}
 
 					if rpc.ResponseSchema != nil {
-						str, _ := NamedOrInlineStruct(declByID, rpc.ResponseSchema)
-						qry, headers, cookies, body := StructBits(str, rpc.HttpMethods[0], true, false, true)
+						str, _ := schemautil.NamedOrInlineStruct(declByID, rpc.ResponseSchema)
+						qry, headers, cookies, body := schemautil.StructBits(str, rpc.HttpMethods[0], true, false, true)
 						schemas["response_schema"] = strings.Join([]string{"{", qry, headers, cookies, body, "}"}, "")
 					}
 

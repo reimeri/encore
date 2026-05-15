@@ -390,6 +390,11 @@
 				text: "Environment Variables"
 				path: "/go/develop/env-vars"
 				file: "go/develop/env-vars"
+			}, {
+				kind: "basic"
+				text: "API Documentation"
+				path: "/go/develop/api-docs"
+				file: "go/develop/api-docs"
 			}]
 		},
 		{
@@ -499,6 +504,11 @@
 				file: "go/how-to/integrate-frontend"
 			}, {
 				kind: "basic"
+				text: "Encore Toolbar"
+				path: "/go/how-to/encore-toolbar"
+				file: "go/how-to/encore-toolbar"
+			}, {
+				kind: "basic"
 				text: "Use Temporal with Encore"
 				path: "/go/how-to/temporal"
 				file: "go/how-to/temporal"
@@ -568,6 +578,11 @@
 			kind: "section"
 			text: "Migration guides"
 			items: [{
+				kind: "basic"
+				text: "Migrate using AI agent"
+				path: "/go/migration/ai-migration"
+				file: "go/migration/ai-migration"
+			}, {
 				kind: "basic"
 				text: "Migrate away from Encore"
 				path: "/go/migration/migrate-away"
@@ -782,6 +797,11 @@
 				file: "ts/primitives/pubsub"
 			}, {
 				kind: "basic"
+				text: "Caching"
+				path: "/ts/primitives/caching"
+				file: "ts/primitives/caching"
+			}, {
+				kind: "basic"
 				text: "Secrets"
 				path: "/ts/primitives/secrets"
 				file: "ts/primitives/secrets"
@@ -872,6 +892,35 @@
 					path: "/ts/develop/monorepo/nx"
 					file: "ts/develop/monorepo/nx"
 				}]
+			}, {
+				kind: "basic"
+				text: "API Documentation"
+				path: "/ts/develop/api-docs"
+				file: "ts/develop/api-docs"
+			}]
+		},
+		{
+			kind: "section"
+			text: "Resources"
+			items: [{
+				kind: "accordion"
+				text: "Integrations"
+				accordion: [{
+					kind: "basic"
+					text: "Better Auth"
+					path: "/ts/develop/integrations/better-auth"
+					file: "ts/develop/integrations/better-auth"
+				}, {
+					kind: "basic"
+					text: "Polar"
+					path: "/ts/develop/integrations/polar"
+					file: "ts/develop/integrations/polar"
+				}, {
+					kind: "basic"
+					text: "Resend"
+					path: "/ts/develop/integrations/resend"
+					file: "ts/develop/integrations/resend"
+				}]
 			}]
 		},
 		{
@@ -937,6 +986,11 @@
 				text: "Mono vs Multi Repo"
 				path: "/ts/frontend/mono-vs-multi-repo"
 				file: "ts/frontend/mono-vs-multi-repo"
+			}, {
+				kind: "basic"
+				text: "Encore Toolbar"
+				path: "/ts/frontend/encore-toolbar"
+				file: "ts/frontend/encore-toolbar"
 			}]
 		},
 		{
@@ -1025,6 +1079,11 @@
 			text: "Migration guides"
 			items: [{
 				kind: "basic"
+				text: "Migrate using AI agent"
+				path: "/ts/migration/ai-migration"
+				file: "ts/migration/ai-migration"
+			}, {
+				kind: "basic"
 				text: "Migrate away from Encore"
 				path: "/ts/migration/migrate-away"
 				file: "ts/migration/migrate-away"
@@ -1092,6 +1151,11 @@
 				text: "AI Integration"
 				path: "/platform/ai-integration"
 				file: "platform/ai-integration"
+			}, {
+				kind: "basic"
+				text: "Cloud MCP Server"
+				path: "/platform/cloud-mcp"
+				file: "platform/cloud-mcp"
 			}]
 		},
 		{
@@ -1137,6 +1201,11 @@
 				text: "Infrastructure Configuration"
 				path: "/platform/infrastructure/configuration"
 				file: "platform/infrastructure/configuration"
+			}, {
+				kind: "basic"
+				text: "Managing Infrastructure"
+				path: "/platform/infrastructure/managing-infrastructure"
+				file: "platform/infrastructure/managing-infrastructure"
 			},
 			{
 				kind: "accordion"
@@ -1301,7 +1370,7 @@
 			text: "Management & Billing"
 			items: [{
 				kind: "basic"
-				text: "Compliance & Security"
+				text: "Security & Compliance"
 				path: "/platform/management/compliance"
 				file: "platform/management/compliance"
 			}, {

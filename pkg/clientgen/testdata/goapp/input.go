@@ -9,6 +9,7 @@ require (
 {"id": ""}
 
 -- svc/svc.go --
+// Svc is a service for testing the client generator.
 package svc
 
 import (
@@ -42,8 +43,9 @@ type Request struct {
     QueryBar string  `query:"bar" encore:"optional"`
     HeaderBaz string `header:"baz" encore:"optional"`
     HeaderInt int    `header:"int" encore:"optional"`
+    HeaderSlice []string `header:"slice"`
 
-// This is a multiline
+    // This is a multiline
     // comment on the raw message!
     Raw json.RawMessage
 }
@@ -95,6 +97,17 @@ type AllInputTypes[A any] struct {
     ignore4 string
 }
 
+type ResponseWithSetCookie struct {
+    Message     string
+    HeaderSlice []string `header:"slice"`      // header with a slice value
+    SetCookie   []string `header:"set-cookie"` // set-cookie header
+}
+
+type ResponseWithSingleSetCookie struct {
+    Message   string
+    SetCookie string `header:"set-cookie"` // single set-cookie header value
+}
+
 // HeaderOnlyStruct contains all types we support in headers
 type HeaderOnlyStruct struct {
     Boolean bool            `header:"x-boolean"`
@@ -134,6 +147,16 @@ func DummyAPI(ctx context.Context, req *Request) error {
 
 //encore:api public method=GET
 func Get(ctx context.Context, req *GetRequest) error {
+    return nil
+}
+
+//encore:api public method=POST
+func SetCookie(ctx context.Context, req *GetRequest) (ResponseWithSetCookie, error) {
+    return nil
+}
+
+//encore:api public method=POST
+func SingleSetCookie(ctx context.Context, req *GetRequest) (ResponseWithSingleSetCookie, error) {
     return nil
 }
 

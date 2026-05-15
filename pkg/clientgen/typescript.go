@@ -241,6 +241,19 @@ func (ts *typescript) writeService(svc *meta.Service, p clientgentypes.ServiceSe
 	}
 
 	ns := svc.Name
+
+	// Service doc string
+	if doc := getServiceDoc(ts.md, svc); doc != "" {
+		scanner := bufio.NewScanner(strings.NewReader(doc))
+		ts.WriteString("/**\n")
+		for scanner.Scan() {
+			ts.WriteString(" * ")
+			ts.WriteString(scanner.Text())
+			ts.WriteByte('\n')
+		}
+		ts.WriteString(" */\n")
+	}
+
 	fmt.Fprintf(ts, "export namespace %s {\n", ts.typeName(ns))
 
 	sort.Slice(decls, func(i, j int) bool {
@@ -511,7 +524,16 @@ func (ts *typescript) streamCallSite(w *indentWriter, rpc *meta.RPC, rpcPath str
 			dict := make(map[string]string)
 			for _, field := range handshakeEnc.HeaderParameters {
 				ref := ts.Dot("params", field.SrcName)
-				dict[field.WireFormat] = ts.convertBuiltinToString(field.Type.GetBuiltin(), ref, field.Optional)
+				if list := field.Type.GetList(); list != nil {
+					dot := ref
+					if field.Optional || ts.isRecursive(field.Type) {
+						dot += "?"
+					}
+					dict[field.WireFormat] = dot +
+						".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", false) + ").join(\", \")"
+				} else {
+					dict[field.WireFormat] = ts.convertBuiltinToString(field.Type.GetBuiltin(), ref, field.Optional)
+				}
 			}
 
 			w.WriteString("const headers = makeRecord<string, string>(")
@@ -531,7 +553,7 @@ func (ts *typescript) streamCallSite(w *indentWriter, rpc *meta.RPC, rpcPath str
 						dot += "?"
 					}
 					dict[field.WireFormat] = dot +
-						".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", field.Optional) + ")"
+						".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", false) + ")"
 				} else {
 					dict[field.WireFormat] = ts.convertBuiltinToString(
 						field.Type.GetBuiltin(),
@@ -633,7 +655,16 @@ func (ts *typescript) rpcCallSite(ns string, w *indentWriter, rpc *meta.RPC, rpc
 			dict := make(map[string]string)
 			for _, field := range reqEnc.HeaderParameters {
 				ref := ts.Dot("params", field.SrcName)
-				dict[field.WireFormat] = ts.convertBuiltinToString(field.Type.GetBuiltin(), ref, field.Optional)
+				if list := field.Type.GetList(); list != nil {
+					dot := ref
+					if field.Optional || ts.isRecursive(field.Type) {
+						dot += "?"
+					}
+					dict[field.WireFormat] = dot +
+						".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", false) + ").join(\", \")"
+				} else {
+					dict[field.WireFormat] = ts.convertBuiltinToString(field.Type.GetBuiltin(), ref, field.Optional)
+				}
 			}
 
 			w.WriteString("const headers = makeRecord<string, string>(")
@@ -653,7 +684,7 @@ func (ts *typescript) rpcCallSite(ns string, w *indentWriter, rpc *meta.RPC, rpc
 						dot += "?"
 					}
 					dict[field.WireFormat] = dot +
-						".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", field.Optional) + ")"
+						".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", false) + ")"
 				} else {
 					dict[field.WireFormat] = ts.convertBuiltinToString(
 						field.Type.GetBuiltin(),
@@ -760,21 +791,31 @@ func (ts *typescript) rpcCallSite(ns string, w *indentWriter, rpc *meta.RPC, rpc
 	w.WriteString("\n")
 
 	for _, headerField := range respEnc.HeaderParameters {
-		isSetCookie := strings.ToLower(headerField.WireFormat) == "set-cookie"
-		if isSetCookie {
-			w.WriteString("// Skip set-cookie header in browser context as browsers doesn't have access to read it\n")
-			w.WriteString("if (!BROWSER) {\n")
-			w = w.Indent()
-		}
-
 		ts.seenHeaderResponse = true
-		fieldValue := fmt.Sprintf("mustBeSet(\"Header `%s`\", resp.headers.get(\"%s\"))", headerField.WireFormat, headerField.WireFormat)
-
-		w.WriteStringf("%s = %s\n", ts.Dot("rtn", headerField.SrcName), ts.convertStringToBuiltin(headerField.Type.GetBuiltin(), fieldValue))
+		isSetCookie := strings.ToLower(headerField.WireFormat) == "set-cookie"
 
 		if isSetCookie {
-			w = w.Dedent()
+			// In browsers Set-Cookie is a forbidden response header,
+			// so we can only read it in non-browser environments.
+			// Use getSetCookie() which correctly returns individual cookie values
+			// without joining them like .get() does.
+			w.WriteString("if (!BROWSER) {\n")
+			inner := w.Indent()
+			if headerField.Type.GetList() != nil {
+				inner.WriteStringf("%s = resp.headers.getSetCookie()\n", ts.Dot("rtn", headerField.SrcName))
+			} else {
+				fieldValue := fmt.Sprintf("mustBeSet(\"Header `%s`\", resp.headers.getSetCookie()[0])", headerField.WireFormat)
+				inner.WriteStringf("%s = %s\n", ts.Dot("rtn", headerField.SrcName), ts.convertStringToBuiltin(headerField.Type.GetBuiltin(), fieldValue))
+			}
 			w.WriteString("}\n")
+		} else if headerField.Type.GetList() != nil {
+			// The Fetch API joins multiple header values with ", " so we get a single string.
+			// Wrap it in an array to match the list type.
+			fieldValue := fmt.Sprintf("mustBeSet(\"Header `%s`\", resp.headers.get(\"%s\"))", headerField.WireFormat, headerField.WireFormat)
+			w.WriteStringf("%s = [%s]\n", ts.Dot("rtn", headerField.SrcName), fieldValue)
+		} else {
+			fieldValue := fmt.Sprintf("mustBeSet(\"Header `%s`\", resp.headers.get(\"%s\"))", headerField.WireFormat, headerField.WireFormat)
+			w.WriteStringf("%s = %s\n", ts.Dot("rtn", headerField.SrcName), ts.convertStringToBuiltin(headerField.Type.GetBuiltin(), fieldValue))
 		}
 	}
 
@@ -1357,7 +1398,7 @@ class BaseClient {
 							dot += "?"
 						}
 						dict[field.WireFormat] = dot +
-							".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", field.Optional) + ")"
+							".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", false) + ")"
 					} else {
 						dict[field.WireFormat] = ts.convertBuiltinToString(
 							field.Type.GetBuiltin(),
@@ -1377,7 +1418,16 @@ class BaseClient {
 				dict := make(map[string]string)
 				for _, field := range authData.HeaderParameters {
 					ref := ts.Dot("authData", field.SrcName)
-					dict[field.WireFormat] = ts.convertBuiltinToString(field.Type.GetBuiltin(), ref, field.Optional)
+					if list := field.Type.GetList(); list != nil {
+						dot := ref
+						if field.Optional || ts.isRecursive(field.Type) {
+							dot += "?"
+						}
+						dict[field.WireFormat] = dot +
+							".map((v) => " + ts.convertBuiltinToString(list.Elem.GetBuiltin(), "v", false) + ").join(\", \")"
+					} else {
+						dict[field.WireFormat] = ts.convertBuiltinToString(field.Type.GetBuiltin(), ref, field.Optional)
+					}
 				}
 
 				w.WriteString("data.headers = makeRecord<string, string>(")

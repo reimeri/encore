@@ -79,7 +79,18 @@ export class RawRequest extends stream.Readable {
       return this._rawHeaders;
     }
 
-    this._rawHeaders = Object.keys(this.headers);
+    const result: string[] = [];
+    const headers = this.headers;
+    for (const [key, value] of Object.entries(headers)) {
+      if (Array.isArray(value)) {
+        for (const v of value) {
+          result.push(key, v);
+        }
+      } else if (value !== undefined) {
+        result.push(key, value);
+      }
+    }
+    this._rawHeaders = result;
     return this._rawHeaders;
   }
 
@@ -313,6 +324,8 @@ class DummySocket extends stream.Duplex {
   setTimeout(_timeout: number, _callback?: () => void): this { return this; }
   setNoDelay(_noDelay?: boolean): this { return this; }
   setKeepAlive(_enable?: boolean, _initialDelay?: number): this { return this; }
+  getTypeOfService(): number { return 0; }
+  setTypeOfService(_tos: number): this { return this; }
   address(): AddressInfo | {} { return {}; }
   unref(): this { return this; }
   ref(): this { return this; }
